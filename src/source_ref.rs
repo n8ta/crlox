@@ -1,27 +1,29 @@
 use std::cmp::{min, max};
 use std::rc::Rc;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use colored::*;
 
 #[derive(Clone, PartialOrd, PartialEq, Ord, Eq, Debug)]
 pub struct Source {
     pub src: String,
+    pub lines: usize,
 }
 
 impl Source {
     pub fn simple() -> Source {
-        Source { src: String::from("") }
+        Source { lines: 1, src: String::from("This source ref should not be printed") }
     }
     pub fn new(src: String) -> Source {
-        Source { src }
+        let lines = src.chars().fold(0, |count, char| if char == '\n' { count + 1 } else { count });
+        Source { src, lines }
     }
 
     pub fn start_point(&self, offset: usize) -> usize {
         let mut seen_line = false;
         let chars: Vec<char> = self.src.chars().collect::<Vec<char>>();
-        for (i, chr) in chars.iter().rev().skip(chars.len()-offset).enumerate() {
+        for (i, chr) in chars.iter().rev().skip(chars.len() - offset).enumerate() {
             if *chr == '\n' && seen_line {
-                return offset-i
+                return offset - i;
             } else if *chr == '\n' {
                 seen_line = true;
             }
@@ -35,7 +37,7 @@ impl Source {
 
         for (i, chr) in chars.iter().skip(offset).enumerate() {
             if *chr == '\n' && seen_line {
-                return offset+i;
+                return offset + i;
             } else if *chr == '\n' {
                 seen_line = true;
             }
@@ -44,20 +46,27 @@ impl Source {
     }
 
     pub fn prior_line(&self, offset: usize) -> &str {
-        return &self.src[self.start_point(offset)..offset]
+        return &self.src[self.start_point(offset)..offset];
     }
     pub fn next_line(&self, offset: usize) -> &str {
         return &self.src[offset..self.end_point(offset)];
     }
 }
 
-#[derive(Clone, PartialOrd, PartialEq, Ord, Eq, Debug)]
+#[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
 pub struct SourceRef {
     // Represents a section of a larger string
     pub line: usize,
     offset: usize,
-    len: usize, // starting at start_line[offset]
+    len: usize,
+    // starting at start_line[offset]
     src: Rc<Source>,
+}
+
+impl Debug for SourceRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("")
+    }
 }
 
 impl SourceRef {
@@ -69,7 +78,7 @@ impl SourceRef {
         SourceRef { offset, len, src, line }
     }
     pub fn merge(&self, other: &SourceRef) -> SourceRef {
-        let start =  min(self.offset, other.offset);
+        let start = min(self.offset, other.offset);
         let end = max(self.offset + self.len, other.offset + other.len);
         SourceRef {
             offset: start,
@@ -87,7 +96,7 @@ impl Display for SourceRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let source = self.src.src.chars().skip(self.offset).take(self.len).collect::<String>().red().to_string();
         let before = self.src.prior_line(self.offset);
-        let after = self.src.next_line(self.offset+self.len);
+        let after = self.src.next_line(self.offset + self.len);
 
         let combined = format!("{}{}{}", before, source, after);
         let raw_output = combined.split("\n").collect::<Vec<&str>>();
@@ -98,7 +107,7 @@ impl Display for SourceRef {
             self.line
         };
         for line in raw_output.into_iter() {
-            let line_number = format!("\t[{}]\t", idx+1).white();
+            let line_number = format!("\t[{}]\t", idx + 1).white();
             with_line_nums.push(
                 format!("{} {}", line_number, line)
             );

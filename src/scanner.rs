@@ -1,11 +1,16 @@
+use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::num::ParseFloatError;
 use std::rc::Rc;
+use std::str::FromStr;
 use crate::source_ref::Source;
 use crate::SourceRef;
 use crate::trie::Trie;
 
+#[derive(Clone, Debug)]
 pub struct Token {
-    kind: TType,
-    src: SourceRef,
+    pub kind: TType,
+    pub src: SourceRef,
 }
 
 impl Token {
@@ -14,7 +19,21 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug,  Clone, PartialEq, PartialOrd)]
+pub struct Num {
+    pub num: f64,
+}
+impl Eq for Num {}
+impl Hash for Num {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.num as i64).hash(state)
+    }
+}
+
+pub type TTypeId = u32;
+
+#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[repr(u32)]
 pub enum TType {
     LEFT_PAREN,
     RIGHT_PAREN,
@@ -39,7 +58,7 @@ pub enum TType {
     // Literals.
     IDENTIFIER(String),
     STRING(String),
-    NUMBER,
+    NUMBER(Num),
     // Keywords.
     AND,
     CLASS,
@@ -58,6 +77,100 @@ pub enum TType {
     VAR,
     WHILE,
     ERROR(String),
+    EOF,
+}
+impl Display for TType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            TType::LEFT_PAREN => "LEFT_PAREN",
+            TType::RIGHT_PAREN => "RIGHT_PAREN",
+            TType::LEFT_BRACE => "LEFT_BRACE",
+            TType::RIGHT_BRACE => "RIGHT_BRACE",
+            TType::COMMA => "COMMA",
+            TType::DOT => "DOT",
+            TType::MINUS => "MINUS",
+            TType::PLUS => "PLUS",
+            TType::SEMICOLON => "SEMICOLON",
+            TType::SLASH => "SLASH",
+            TType::STAR => "STAR",
+            TType::BANG => "BANG",
+            TType::BANG_EQUAL => "BANG_EQUAL",
+            TType::EQUAL => "EQUAL",
+            TType::EQUAL_EQUAL => "EQUAL_EQUAL",
+            TType::GREATER => "GREATER",
+            TType::GREATER_EQUAL => "GREATER_EQUAL",
+            TType::LESS => "LESS",
+            TType::LESS_EQUAL => "LESS_EQUAL",
+            TType::IDENTIFIER(_) => "IDENTIFIER",
+            TType::STRING(_) => "STRING",
+            TType::NUMBER(_) => "NUMBER",
+            TType::AND => "AND",
+            TType::CLASS => "CLASS",
+            TType::ELSE => "ELSE",
+            TType::FALSE => "FALSE",
+            TType::FOR => "FOR",
+            TType::FUN => "FUN",
+            TType::IF => "IF",
+            TType::NIL => "NIL",
+            TType::OR => "OR",
+            TType::PRINT => "PRINT",
+            TType::RETURN => "RETURN",
+            TType::SUPER => "SUPER",
+            TType::THIS => "THIS",
+            TType::TRUE => "TRUE",
+            TType::VAR => "VAR",
+            TType::WHILE => "WHILE",
+            TType::ERROR(_) => "ERROR",
+            TType::EOF => "EOF",
+        };
+        f.write_str(str)
+    }
+}
+impl TType {
+    pub fn id(&self) -> TTypeId {
+        match self {
+            TType::LEFT_PAREN => 0,
+            TType::RIGHT_PAREN => 1,
+            TType::LEFT_BRACE => 2,
+            TType::RIGHT_BRACE => 3,
+            TType::COMMA => 4,
+            TType::DOT => 5,
+            TType::MINUS => 6,
+            TType::PLUS => 7,
+            TType::SEMICOLON => 8,
+            TType::SLASH => 9,
+            TType::STAR => 10,
+            TType::BANG => 11,
+            TType::BANG_EQUAL => 12,
+            TType::EQUAL => 13,
+            TType::EQUAL_EQUAL => 14,
+            TType::GREATER => 15,
+            TType::GREATER_EQUAL => 16,
+            TType::LESS => 17,
+            TType::LESS_EQUAL => 18,
+            TType::IDENTIFIER(_) => 19,
+            TType::STRING(_) => 20,
+            TType::NUMBER(_) => 21,
+            TType::AND => 22,
+            TType::CLASS => 23,
+            TType::ELSE => 24,
+            TType::FALSE => 25,
+            TType::FOR => 26,
+            TType::FUN => 27,
+            TType::IF => 28,
+            TType::NIL => 29,
+            TType::OR => 30,
+            TType::PRINT => 31,
+            TType::RETURN => 32,
+            TType::SUPER => 33,
+            TType::THIS => 34,
+            TType::TRUE => 35,
+            TType::VAR => 36,
+            TType::WHILE => 37,
+            TType::ERROR(_) => 38,
+            TType::EOF => 39,
+        }
+    }
 }
 
 pub struct Scanner {
@@ -71,6 +184,7 @@ pub struct Scanner {
 
 impl Scanner {
     pub fn new(src: String) -> Scanner {
+        println!("Scanner src: {}", &src);
         let mut keywords: Trie<u8, TType> = Trie::new();
         {
             keywords.insert("AND".as_bytes(), TType::AND);
@@ -95,6 +209,10 @@ impl Scanner {
             keywords.insert("var".as_bytes(), TType::VAR);
             keywords.insert("WHILE".as_bytes(), TType::WHILE);
             keywords.insert("while".as_bytes(), TType::WHILE);
+            keywords.insert("FALSE".as_bytes(), TType::FALSE);
+            keywords.insert("false".as_bytes(), TType::FALSE);
+            keywords.insert("TRUE".as_bytes(), TType::TRUE);
+            keywords.insert("true".as_bytes(), TType::TRUE);
         }
         Scanner {
             keywords,
@@ -135,10 +253,16 @@ impl Scanner {
         }
     }
     fn peek(&self) -> char {
-        *self.chars.get(self.current).expect("Compiler error: bad peak")
+        match self.chars.get(self.current) {
+            None => '\x00',
+            Some(c) => *c,
+        }
     }
     fn peek_next(&self) -> char {
-        *self.chars.get(self.current + 1).expect("Compiler error: bad peak_next")
+        match self.chars.get(self.current) {
+            None => '\x00',
+            Some(c) => *c,
+        }
     }
     fn strip_wspace(&mut self) {
         loop {
@@ -162,17 +286,21 @@ impl Scanner {
             self.advance();
             while self.peek().is_digit(10) { self.advance(); }
         }
-        self.make_token(TType::NUMBER)
+        let str: String = self.chars[self.start..self.current].iter().collect();
+        match f64::from_str(&str) {
+            Ok(n) => self.make_token(TType::NUMBER(Num{num: n})),
+            Err(_) => self.make_err_token(format!("Tried to parse '{}' as a number but failed", str)),
+        }
     }
-    pub fn scan_token(&mut self) -> Option<Token> {
+    pub fn scan_token(&mut self) -> Token {
         self.strip_wspace();
         self.start = self.current;
-        if self.is_at_end() { return None; }
+        if self.is_at_end() { return Token::new(TType::EOF, SourceRef::new(self.src.src.len()-1, 1, self.src.lines, self.src.clone())); }
         let c = self.advance();
         if c.is_digit(10) {
-            return Some(self.number());
+            return self.number();
         }
-        Some(match c {
+        match c {
             '(' => self.make_token(TType::LEFT_PAREN),
             ')' => self.make_token(TType::RIGHT_PAREN),
             '{' => self.make_token(TType::LEFT_BRACE),
@@ -211,7 +339,7 @@ impl Scanner {
                     self.advance();
                 }
                 if self.is_at_end() {
-                    return Some(self.make_err_token("Unterminated string literal".to_string()));
+                    return self.make_err_token("Unterminated string literal".to_string());
                 }
                 self.advance();
                 let literal = self.chars[self.start..self.current].iter().collect();
@@ -226,11 +354,10 @@ impl Scanner {
                     } else {
                         self.make_token(TType::IDENTIFIER(ident))
                     }
-
                 } else {
                     panic!("todo: error");
                 }
             }
-        })
+        }
     }
 }

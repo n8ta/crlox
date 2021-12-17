@@ -4,7 +4,9 @@ use std::thread::current;
 use crate::chunk::Chunk;
 use crate::ops::{Add, Const, Div, Mult, Negate, OpTrait, Ret, Sub};
 use crate::source_ref::SourceRef;
-use crate::vm::VM;
+use crate::vm::{InterpError, VM};
+use crate::compiler::Compiler;
+use crate::value::Value;
 
 mod value;
 mod ops;
@@ -15,37 +17,48 @@ mod scanner;
 mod compiler;
 mod trie;
 
+#[repr(u8)]
+enum Test {
+    A,
+    B(String),
+}
+
 fn main() {
-    let mut chunk = Chunk::new();
-    let a = chunk.add_const(1.2);
-    let b = chunk.add_const(3.4);
-    let c = chunk.add_const(5.6);
-    a.write(&mut chunk);
-    b.write(&mut chunk);
-    Add {}.write(&mut chunk);
-    c.write(&mut chunk);
-    Div {}.write(&mut chunk);
-    Negate {}.write(&mut chunk);
-    Ret {}.write(&mut chunk);
-    VM::interpret(&chunk);
 
     let args: Vec<String> = std::env::args().collect();
-    if let Some(path) = args.get(1) {
-        let mut file = match std::fs::File::open(path) {
-            Ok(f) => f,
-            Err(err) => {
-                eprintln!("Unable to open file @ '{}'", path);
-                eprintln!("Error: {}", err);
-                exit(-1)
-            }
-        };
-        let mut contents: String = String::new();
-        if let Err(err) =  file.read_to_string(&mut contents) {
-            eprintln!("Unable to read file @ '{}'", path);
-            eprintln!("Error: {}", err);
-            exit(-1);
-        }
+    let path = if let Some(path) = args.get(1) {
+        path
     } else {
-        println!("Usage: ./rclox [source_file.lox]")
+        println!("Usage: ./rclox [source_file.lox]");
+        exit(-1);
+    };
+
+    println!("Opening {}", path);
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(err) => {
+            eprintln!("Unable to open file @ '{}'", path);
+            eprintln!("Error: {}", err);
+            exit(-1)
+        }
+    };
+    let mut contents: String = String::new();
+    if let Err(err) =  file.read_to_string(&mut contents) {
+        eprintln!("Unable to read file @ '{}'", path);
+        eprintln!("Error: {}", err);
+        exit(-1);
+    }
+    let chunk = match Compiler::compile(contents) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("{}", err);
+            exit(-1);
+        },
+    };
+    println!("chunk: {:?}", &chunk);
+    let res = VM::interpret(&chunk);
+    match res {
+        Ok(r) => println!("{}", r),
+        Err(r) => eprintln!("{}", r),
     }
 }

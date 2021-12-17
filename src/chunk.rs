@@ -1,6 +1,7 @@
 use crate::{Const, Negate, OpTrait, Ret, SourceRef};
 use crate::value::Value;
 
+#[derive(Clone, Debug)]
 pub struct Chunk {
     code: Vec<u8>,
     sources: Vec<SourceRef>, // Same len as code
@@ -34,11 +35,14 @@ impl Chunk {
             }
         }
     }
+    pub fn get_source(&self, code_idx: usize) -> Option<&SourceRef> {
+        self.sources.get(code_idx)
+    }
     fn disassemble_op(&self, byte: &u8, idx: usize) -> usize {
         match *byte {
             Const::CODE => {
                 let const_idx = self.code[idx] as usize;
-                let const_val = self.constants[const_idx];
+                let const_val = self.constants[const_idx].clone();
                 println!("const[{}]{}", const_idx, const_val);
                 Const::SIZE
             }

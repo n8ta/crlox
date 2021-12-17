@@ -5,7 +5,7 @@ use crate::source_ref::Source;
 pub trait OpTrait {
     const CODE: u8;
     const SIZE: usize;
-    fn write(&self, code: &mut Chunk);
+    fn write(&self, code: &mut Chunk, src: SourceRef);
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self);
 }
 
@@ -15,8 +15,8 @@ pub struct Ret {}
 impl OpTrait for Ret {
     const CODE: u8 = 0;
     const SIZE: usize = 1;
-    fn write(&self, code: &mut Chunk) {
-        code.add_byte(Self::CODE, SourceRef::simple());
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
     }
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Ret {}) }
 }
@@ -29,9 +29,9 @@ pub struct Const {
 impl OpTrait for Const {
     const CODE: u8 = 1;
     const SIZE: usize = 2;
-    fn write(&self, code: &mut Chunk) {
-        code.add_byte(Self::CODE, SourceRef::simple());
-        code.add_byte(self.idx, SourceRef::simple());
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src.clone());
+        code.add_byte(self.idx, src);
     }
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
         (1, Const { idx: *code.get(idx).expect("Bad bytecode") })
@@ -45,8 +45,8 @@ impl OpTrait for Negate {
     const CODE: u8 = 2;
     const SIZE: usize = 1;
 
-    fn write(&self, code: &mut Chunk) {
-        code.add_byte(Self::CODE, SourceRef::simple());
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
     }
 
     fn decode(_code: &Vec<u8>, idx: usize) -> (usize, Self) { (0, Negate {}) }
@@ -58,8 +58,8 @@ pub struct Add {}
 impl OpTrait for Add {
     const CODE: u8 = 3;
     const SIZE: usize = 1;
-    fn write(&self, code: &mut Chunk) {
-        code.add_byte(Self::CODE, SourceRef::simple());
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
     }
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Add{})}
 }
@@ -69,8 +69,8 @@ pub struct Sub {}
 impl OpTrait for Sub {
     const CODE: u8 = 4;
     const SIZE: usize = 1;
-    fn write(&self, code: &mut Chunk) {
-        code.add_byte(Self::CODE, SourceRef::simple());
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
     }
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Sub{})}
 }
@@ -80,8 +80,8 @@ pub struct Mult {}
 impl OpTrait for Mult {
     const CODE: u8 = 5;
     const SIZE: usize = 1;
-    fn write(&self, code: &mut Chunk) {
-        code.add_byte(Self::CODE, SourceRef::simple());
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
     }
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Mult{})}
 }
@@ -91,8 +91,85 @@ pub struct Div {}
 impl OpTrait for Div {
     const CODE: u8 = 6;
     const SIZE: usize = 1;
-    fn write(&self, code: &mut Chunk) {
-        code.add_byte(Self::CODE, SourceRef::simple());
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
     }
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Div{})}
 }
+
+#[derive(Debug)]
+pub struct True {}
+
+impl OpTrait for True {
+    const CODE: u8 = 7;
+    const SIZE: usize = 1;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
+    }
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, True{})}
+}
+
+#[derive(Debug)]
+pub struct False {}
+
+impl OpTrait for False {
+    const CODE: u8 = 8;
+    const SIZE: usize = 1;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
+    }
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, False{})}
+}
+
+#[derive(Debug)]
+pub struct Nil {}
+
+impl OpTrait for Nil {
+    const CODE: u8 = 9;
+    const SIZE: usize = 1;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
+    }
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Nil{})}
+}
+
+#[derive(Debug)]
+pub struct Not {}
+
+impl OpTrait for Not {
+    const CODE: u8 = 10;
+    const SIZE: usize = 1;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
+    }
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Not{})}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
