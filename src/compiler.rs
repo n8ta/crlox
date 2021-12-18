@@ -1,10 +1,11 @@
+use std::cmp::Ordering::Equal;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
-use crate::{Add, Chunk, Const, Div, Mult, Negate, OpTrait, Ret, SourceRef, Sub};
-use crate::ops::{False, Nil, Not, True};
+use crate::{Add, Chunk, Const, Div, Mult, Negate, OpTrait, Ret, SourceRef, Sub, value};
+use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True};
 use crate::scanner::{Num, Scanner, Token, TType, TTypeId};
-use crate::value::Value;
+use crate::value::{Value};
 
 pub struct CompilerError {
     msg: String,
@@ -101,7 +102,7 @@ fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), Com
     } else {
         let msg = format!("Unexpected token: {}", compiler.parser.previous.kind);
         return error_at_prev(compiler,
-                                &msg);
+                             &msg);
     };
 
     prefix_rule(compiler)?;
@@ -120,7 +121,7 @@ fn number(compiler: &mut Compiler) -> Result<(), CompilerError> {
     } else {
         error_at_prev(
             compiler,
-            &format!("Exected to find a number but found a {}", &compiler.parser.previous.kind))
+            &format!("Expected to find a number but found a {}", &compiler.parser.previous.kind))
             ?;
     }
     Ok(())
@@ -136,7 +137,7 @@ fn unary(compiler: &mut Compiler) -> Result<(), CompilerError> {
     parse_precedence(compiler, Precedence::UNARY)?;
     match typ.kind {
         TType::MINUS => Negate {}.write(&mut compiler.current_chunk, typ.src),
-        TType::BANG => Not{}.write(&mut compiler.current_chunk, typ.src),
+        TType::BANG => Not {}.write(&mut compiler.current_chunk, typ.src),
         _ => panic!("unreachable"),
     }
     Ok(())
@@ -163,16 +164,34 @@ fn binary(compiler: &mut Compiler) -> Result<(), CompilerError> {
         TType::MINUS => Sub {}.write(&mut compiler.current_chunk, typ.src),
         TType::SLASH => Div {}.write(&mut compiler.current_chunk, typ.src),
         TType::STAR => Mult {}.write(&mut compiler.current_chunk, typ.src),
+        TType::BANG_EQUAL => NotEqual {}.write(&mut compiler.current_chunk, typ.src),
+        TType::EQUAL_EQUAL => EqualEqual {}.write(&mut compiler.current_chunk, typ.src),
+        TType::LESS => Less {}.write(&mut compiler.current_chunk, typ.src),
+        TType::LESS_EQUAL => LessOrEq {}.write(&mut compiler.current_chunk, typ.src),
+        TType::GREATER => Greater {}.write(&mut compiler.current_chunk, typ.src),
+        TType::GREATER_EQUAL => GreaterOrEq {}.write(&mut compiler.current_chunk, typ.src),
         _ => panic!("bad typ"),
     }
     Ok(())
 }
 
+fn string(compiler: &mut Compiler) -> Result<(), CompilerError> {
+    if let TType::STRING(str) = &compiler.parser.previous.kind {
+        emit_const(compiler,
+                   Value::String(str.clone()),
+                   compiler.parser.previous.src.clone());
+        Ok(())
+    } else {
+        Err(CompilerError::new(format!("Expected to find a string but found a {}", &compiler.parser.previous.kind),
+                               compiler.parser.previous.src.clone()))
+    }
+}
+
 fn literal(compiler: &mut Compiler) -> Result<(), CompilerError> {
     match compiler.parser.previous.kind {
-        TType::TRUE => True{}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
-        TType::FALSE => False{}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
-        TType::NIL => Nil{}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
+        TType::TRUE => True {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
+        TType::FALSE => False {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
+        TType::NIL => Nil {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
         _ => panic!("not a literal!"),
     }
     Ok(())
@@ -250,15 +269,15 @@ impl Compiler {
             rules.insert(TType::SLASH.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
             rules.insert(TType::STAR.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
             rules.insert(TType::BANG.id(), Rule::new(Some(unary), None, Precedence::NONE));
-            rules.insert(TType::BANG_EQUAL.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::BANG_EQUAL.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
             rules.insert(TType::EQUAL.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::EQUAL_EQUAL.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::GREATER.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::GREATER_EQUAL.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::LESS.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::LESS_EQUAL.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::EQUAL_EQUAL.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
+            rules.insert(TType::GREATER.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
+            rules.insert(TType::GREATER_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
+            rules.insert(TType::LESS.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
+            rules.insert(TType::LESS_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
             rules.insert(TType::IDENTIFIER(format!("")).id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::STRING(format!("")).id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::STRING(format!("")).id(), Rule::new(Some(string), None, Precedence::NONE));
             rules.insert(TType::NUMBER(Num { num: 0.0 }).id(), Rule::new(Some(number), None, Precedence::NONE));
             rules.insert(TType::AND.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::CLASS.id(), Rule::new(None, None, Precedence::NONE));

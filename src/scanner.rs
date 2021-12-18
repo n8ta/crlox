@@ -295,7 +295,7 @@ impl Scanner {
     pub fn scan_token(&mut self) -> Token {
         self.strip_wspace();
         self.start = self.current;
-        if self.is_at_end() { return Token::new(TType::EOF, SourceRef::new(self.src.src.len()-1, 1, self.src.lines, self.src.clone())); }
+        if self.is_at_end() { return Token::new(TType::EOF, SourceRef::new(self.src.src.len().saturating_sub(1), 1, self.src.lines, self.src.clone())); }
         let c = self.advance();
         if c.is_digit(10) {
             return self.number();
@@ -342,7 +342,7 @@ impl Scanner {
                     return self.make_err_token("Unterminated string literal".to_string());
                 }
                 self.advance();
-                let literal = self.chars[self.start..self.current].iter().collect();
+                let literal = self.chars[self.start+1..self.current-1].iter().collect();
                 self.make_token(TType::STRING(literal))
             }
             _ => {

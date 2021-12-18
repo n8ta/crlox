@@ -55,10 +55,13 @@ fn main() {
             exit(-1);
         },
     };
+
+    chunk.disassemble();
+
     println!("chunk: {:?}", &chunk);
     let res = VM::interpret(&chunk);
     match res {
-        Ok(r) => println!("{}", r),
+        Ok(r) => println!("success: {}", r),
         Err(r) => eprintln!("{}", r),
     }
 }

@@ -1,10 +1,12 @@
-use crate::{Const, Negate, OpTrait, Ret, SourceRef};
+use crate::{Add, Const, Div, Mult, Negate, OpTrait, Ret, SourceRef, Sub};
+use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True};
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
 pub struct Chunk {
     code: Vec<u8>,
-    sources: Vec<SourceRef>, // Same len as code
+    sources: Vec<SourceRef>,
+    // Same len as code
     constants: Vec<Value>,
 }
 
@@ -29,7 +31,7 @@ impl Chunk {
         let mut idx = 0;
         loop {
             if let Some(byte) = self.code.get(idx) {
-                idx +=  self.disassemble_op(byte, idx + 1)
+                idx += self.disassemble_op(byte, idx + 1)
             } else {
                 break;
             }
@@ -43,16 +45,72 @@ impl Chunk {
             Const::CODE => {
                 let const_idx = self.code[idx] as usize;
                 let const_val = self.constants[const_idx].clone();
-                println!("const[{}]{}", const_idx, const_val);
+                println!("Const[{}]{}", const_idx, const_val);
                 Const::SIZE
             }
             Ret::CODE => {
-                println!("return");
+                println!("Return");
                 Ret::SIZE
             }
             Negate::CODE => {
-                println!("negate");
+                println!("Negate");
                 Negate::SIZE
+            }
+            Add::CODE => {
+                println!("Add");
+                Add::SIZE
+            }
+            Sub::CODE => {
+                println!("Sub");
+                Sub::SIZE
+            }
+            Mult::CODE => {
+                println!("Mult");
+                Mult::SIZE
+            }
+            Div::CODE => {
+                println!("Div");
+                Div::SIZE
+            }
+            True::CODE => {
+                println!("True");
+                True::SIZE
+            }
+            False::CODE => {
+                println!("False");
+                False::SIZE
+            }
+            Nil::CODE => {
+                println!("Nil");
+                Nil::SIZE
+            }
+            Not::CODE => {
+                println!("Not");
+                Not::SIZE
+            }
+            EqualEqual::CODE => {
+                println!("EqualEqual");
+                EqualEqual::SIZE
+            }
+            NotEqual::CODE => {
+                println!("NotEqual");
+                NotEqual::SIZE
+            }
+            Greater::CODE => {
+                println!("Greater");
+                Greater::SIZE
+            }
+            Less::CODE => {
+                println!("Less");
+                Less::SIZE
+            }
+            GreaterOrEq::CODE => {
+                println!("GreaterOrEq");
+                GreaterOrEq::SIZE
+            }
+            LessOrEq::CODE => {
+                println!("LessOrEq");
+                LessOrEq::SIZE
             }
             _ => panic!("Bad op code")
         }
