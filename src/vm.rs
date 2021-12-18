@@ -54,7 +54,7 @@ pub struct VM<'a> {
 
 enum Test {
     Str,
-    Num
+    Num,
 }
 
 impl<'a> VM<'a> {
@@ -89,7 +89,7 @@ impl<'a> VM<'a> {
             Some(val) => {
                 println!("Popping {:?}", &val);
                 Ok(val)
-            },
+            }
         }
     }
 
@@ -103,7 +103,7 @@ impl<'a> VM<'a> {
             let inst = self.read_byte()?;
             let len = match inst {
                 Ret::CODE => {
-                    let (len, _ret) = Ret::decode(self.code, self.ip + 1);
+                    let (_len, _ret) = Ret::decode(self.code, self.ip + 1);
                     let popped = self.pop()?;
                     return Ok(popped);
                 }
@@ -111,7 +111,7 @@ impl<'a> VM<'a> {
                     let (_len, con) = Const::decode(self.code, self.ip + 1);
                     let value: Value = self.consts.get(con.idx as usize).expect("Compiler error").clone();
                     self.push(value);
-                    Const::SIZE-1
+                    Const::SIZE - 1
                 }
                 Negate::CODE => {
                     let popped = self.pop()?;
@@ -131,8 +131,10 @@ impl<'a> VM<'a> {
                     let res = match (&a, &b) {
                         (Value::Num(a), Value::Num(b)) => Value::Num(a + b),
                         (Value::String(str1), Value::String(str2)) => {
-                            Value::String(format!("{}{}", str1,str2))
-                        },
+                            let mut new_str = str1.clone();
+                            new_str.push_str(str2);
+                            Value::String(new_str)
+                        }
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
                                                              format!("Cannot add a {} and a {}", a.tname(), b.tname())))
                     };
@@ -193,7 +195,18 @@ impl<'a> VM<'a> {
                 EqualEqual::CODE => {
                     let a = self.pop()?;
                     let b = self.pop()?;
-                    self.push(Value::Bool(a == b));
+
+                    self.push(Value::Bool(
+                        match (&a, &b) {
+                            (Value::Num(a), Value::Num(b)) => (a == b),
+                            (Value::String(a), Value::String(b)) => (a == b),
+                            (Value::Bool(a), Value::Bool(b)) => (a == b),
+                            (Value::Nil, Value::Nil) => (a == b),
+                            _ => return Err(InterpError::runtime(
+                                Some(self.chunk.get_source(self.ip).unwrap().clone()),
+                                format!("Cannot compare a {} and a {}", a.tname(), b.tname()),
+                            ))
+                        }));
                     0
                 }
                 NotEqual::CODE => {
@@ -208,40 +221,40 @@ impl<'a> VM<'a> {
                     match (&a, &b) {
                         (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b > a)),
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
-                        format!("Cannot compare {} and {} with the > op", a.tname(), b.tname())))
+                                                             format!("Cannot compare {} and {} with the > op", a.tname(), b.tname())))
                     }
                     0
-                },
+                }
                 GreaterOrEq::CODE => {
                     let a = self.pop()?;
                     let b = self.pop()?;
                     match (&a, &b) {
                         (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b >= a)),
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
-                        format!("Cannot compare {} and {} with the >= operation", a.tname(), b.tname())))
+                                                             format!("Cannot compare {} and {} with the >= operation", a.tname(), b.tname())))
                     }
                     0
-                },
+                }
                 Less::CODE => {
                     let a = self.pop()?;
                     let b = self.pop()?;
                     match (&a, &b) {
                         (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b < a)),
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
-                        format!("Cannot compare {} and {} with the < operation", a.tname(), b.tname())))
+                                                             format!("Cannot compare {} and {} with the < operation", a.tname(), b.tname())))
                     }
                     0
-                },
+                }
                 LessOrEq::CODE => {
                     let a = self.pop()?;
                     let b = self.pop()?;
                     match (&a, &b) {
                         (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b <= a)),
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
-                        format!("Cannot compare {} and {} with the <= operation", a.tname(), b.tname())))
+                                                             format!("Cannot compare {} and {} with the <= operation", a.tname(), b.tname())))
                     }
                     0
-                },
+                }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))
             };
             self.ip += 1 + len;

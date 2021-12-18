@@ -16,6 +16,7 @@ mod vm;
 mod scanner;
 mod compiler;
 mod trie;
+mod intern;
 
 #[repr(u8)]
 enum Test {
