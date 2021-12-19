@@ -325,7 +325,7 @@ impl Scanner {
         }
     }
     fn number(&mut self) -> Token {
-        while (self.peek().is_digit(10)) { self.advance(); }
+        while self.peek().is_digit(10) { self.advance(); }
         if self.peek() == '.' && self.peek_next().is_digit(10) {
             self.advance();
             while self.peek().is_digit(10) { self.advance(); }

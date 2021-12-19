@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::convert::identity;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
-use std::sync::atomic::compiler_fence;
 use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal};
 use crate::scanner::{Num, Scanner, Token, TType, TTypeId};
 use crate::{Chunk, SourceRef};
+use crate::scanner::TType::PRINT;
 use crate::value::{Value};
 
 pub struct CompilerError {
@@ -150,11 +149,14 @@ fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), Com
 
 }
 
+fn identifier_constant(str: &str, chunk: &mut Chunk,) -> Result<Const, CompilerError>  {
+    Ok(chunk.add_const(Value::String(str.to_string())))
+}
+
 fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<Const, CompilerError> {
     consume(compiler, TType::IDENTIFIER(format!("")).id(), message)?;
     if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
-        let con = emit_const(compiler, Value::String(str.clone()), compiler.parser.previous.src.clone());
-        Ok(con)
+        identifier_constant(str, &mut compiler.current_chunk)
     } else {
         let typ = compiler.parser.previous.kind.clone().tname();
         Err(CompilerError::new(
@@ -299,7 +301,8 @@ fn variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerErr
 
 fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
-        let const_ref = compiler.current_chunk.add_const(Value::String(str.clone()));
+        let const_ref = identifier_constant(str, &mut compiler.current_chunk)?;
+
         if can_assign && matches(compiler, TType::EQUAL.id()) {
             expression(compiler, can_assign)?;
             SetGlobal{idx: const_ref.idx}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
@@ -307,13 +310,22 @@ fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compi
             GetGlobal{idx: const_ref.idx}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
         }
         Ok(())
+
+
     } else {
-        let typ = compiler.parser.previous.kind.clone().tname();
-        Err(CompilerError::new(
-            format!("Expected to find a variable name but found a {}",
-                    typ),
-            compiler.parser.previous.src.clone()))
+        panic!("compiler error");
     }
+
+    // if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
+    //     let const_ref = compiler.current_chunk.add_const(Value::String(str.clone()));
+    //     Ok(())
+    // } else {
+    //     let typ = compiler.parser.previous.kind.clone().tname();
+    //     Err(CompilerError::new(
+    //         format!("Expected to find a variable name but found a {}",
+    //                 typ),
+    //         compiler.parser.previous.src.clone()))
+    // }
 }
 
 fn consume(compiler: &mut Compiler, typ: TTypeId, message: &str) -> Result<(), CompilerError> {

@@ -45,94 +45,94 @@ impl Chunk {
             Const::CODE => {
                 let const_idx = self.code[idx] as usize;
                 let const_val = self.constants[const_idx].clone();
-                println!("Const[{}]{}", const_idx, const_val);
+                println!("{} Const[{}]{}", idx-1, const_idx, const_val);
                 Const::SIZE
             }
             Ret::CODE => {
-                println!("Return");
+                println!("{} Return", idx-1);
                 Ret::SIZE
             }
             Negate::CODE => {
-                println!("Negate");
+                println!("{} Negate", idx-1);
                 Negate::SIZE
             }
             Add::CODE => {
-                println!("Add");
+                println!("{} Add", idx-1);
                 Add::SIZE
             }
             Sub::CODE => {
-                println!("Sub");
+                println!("{} Sub", idx-1);
                 Sub::SIZE
             }
             Mult::CODE => {
-                println!("Mult");
+                println!("{} Mult", idx-1);
                 Mult::SIZE
             }
             Div::CODE => {
-                println!("Div");
+                println!("{} Div", idx-1);
                 Div::SIZE
             }
             True::CODE => {
-                println!("True");
+                println!("{} True", idx-1);
                 True::SIZE
             }
             False::CODE => {
-                println!("False");
+                println!("{} False", idx-1);
                 False::SIZE
             }
             Nil::CODE => {
-                println!("Nil");
+                println!("{} Nil", idx-1);
                 Nil::SIZE
             }
             Not::CODE => {
-                println!("Not");
+                println!("{} Not", idx-1);
                 Not::SIZE
             }
             EqualEqual::CODE => {
-                println!("EqualEqual");
+                println!("{} EqualEqual", idx-1);
                 EqualEqual::SIZE
             }
             NotEqual::CODE => {
-                println!("NotEqual");
+                println!("{} NotEqual", idx-1);
                 NotEqual::SIZE
             }
             Greater::CODE => {
-                println!("Greater");
+                println!("{} Greater", idx-1);
                 Greater::SIZE
             }
             Less::CODE => {
-                println!("Less");
+                println!("{} Less", idx-1);
                 Less::SIZE
             }
             GreaterOrEq::CODE => {
-                println!("GreaterOrEq");
+                println!("{} GreaterOrEq", idx-1);
                 GreaterOrEq::SIZE
             }
             LessOrEq::CODE => {
-                println!("LessOrEq");
+                println!("{} LessOrEq", idx-1);
                 LessOrEq::SIZE
             }
             Print::CODE => {
-                println!("Print");
+                println!("{} Print", idx-1);
                 Print::SIZE
             }
             Pop::CODE => {
-                println!("Pop");
+                println!("{} Pop", idx-1);
                 Pop::SIZE
             }
             DefGlobal::CODE => {
                 let (len, op) = DefGlobal::decode(&self.code, idx);
-                println!("DefGlobal[{}]=>{}", op.idx, self.constants[op.idx as usize]);
+                println!("{} DefGlobal[{}]=>{}", idx-1, op.idx, self.constants[op.idx as usize]);
                 len + 1
             }
             GetGlobal::CODE => {
                 let (len, op) = GetGlobal::decode(&self.code, idx);
-                println!("GetGlobal[{}]=>{}", op.idx, self.constants[op.idx as usize]);
+                println!("{} GetGlobal[{}]=>{}", idx-1, op.idx, self.constants[op.idx as usize]);
                 len + 1
             }
             SetGlobal::CODE => {
                 let (len, op) = SetGlobal::decode(&self.code, idx);
-                println!("SetGlobal[{}]=>{}", op.idx, self.constants[op.idx as usize]);
+                println!("{} SetGlobal[{}]=>{}", idx-1, op.idx, self.constants[op.idx as usize]);
                 len + 1
             }
             _ => panic!("Bad op code {}", byte)

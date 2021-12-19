@@ -92,10 +92,14 @@ impl<'a> VM<'a> {
                 Err(InterpError::compile(src, format!("Compiler error: unable to load value for this option")))
             }
             Some(val) => {
-                // println!("<== Popping {:?}", &val);
+                println!("<== Popping {:?}", &val);
                 Ok(val)
             }
         }
+    }
+
+    fn peek(&self) -> &Value {
+        self.stack.last().unwrap()
     }
 
     fn push(&mut self, v: Value) {
@@ -106,11 +110,13 @@ impl<'a> VM<'a> {
     fn run(&mut self) -> Result<Value, InterpError> {
         loop {
             let inst = self.read_byte()?;
+            println!("[{}] begin ({})", self.ip, inst);
             let len = match inst {
                 Ret::CODE => {
                     let (_len, _ret) = Ret::decode(self.code, self.ip + 1);
-                    let popped = self.pop()?;
-                    return Ok(popped);
+                    // let popped = self.pop()?;
+                    // return Ok(popped);
+                    return Ok(Value::Num(1.0))
                 }
                 Const::CODE => {
                     let (_len, con) = Const::decode(self.code, self.ip + 1);
@@ -262,7 +268,7 @@ impl<'a> VM<'a> {
                 }
                 Print::CODE => {
                     let value = self.pop()?;
-                    // println!("PRINT==> {}", value);
+                    println!("PRINT {}", value);
                     0
                 }
                 Pop::CODE => {
@@ -303,11 +309,11 @@ impl<'a> VM<'a> {
                 SetGlobal::CODE => {
                     let (len, set_global) = SetGlobal::decode(self.code, self.ip + 1);
                     let global_name = self.consts.get(set_global.idx as usize).expect("Compiler error, bad index in get global op");
-                    let new_val = self.pop()?;
+                    let new_val = self.peek();
                     println!("Setting global {} to {}", global_name, new_val);
                     if let Value::String(global_name) = global_name {
                         if let Some(_) = self.globals.get(global_name) {
-                            self.globals.insert(global_name.clone(), new_val);
+                            self.globals.insert(global_name.clone(), new_val.clone());
                         } else {
                             return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
                                                             format!("Cannot assign to global variable {} since it has not been declared", global_name)));
