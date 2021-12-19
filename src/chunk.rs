@@ -1,5 +1,5 @@
-use crate::{Add, Const, Div, Mult, Negate, OpTrait, Ret, SourceRef, Sub};
-use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True};
+use crate::ops::{OpTrait, Add, Const, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, SetGlobal, GetGlobal, DefGlobal};
+use crate::SourceRef;
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -11,10 +11,10 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub(crate) fn code(&self) -> &Vec<u8> {
+    pub fn code(&self) -> &Vec<u8> {
         &self.code
     }
-    pub(crate) fn consts(&self) -> &Vec<Value> {
+    pub fn consts(&self) -> &Vec<Value> {
         &self.constants
     }
 
@@ -112,7 +112,30 @@ impl Chunk {
                 println!("LessOrEq");
                 LessOrEq::SIZE
             }
-            _ => panic!("Bad op code")
+            Print::CODE => {
+                println!("Print");
+                Print::SIZE
+            }
+            Pop::CODE => {
+                println!("Pop");
+                Pop::SIZE
+            }
+            DefGlobal::CODE => {
+                let (len, op) = DefGlobal::decode(&self.code, idx);
+                println!("DefGlobal[{}]=>{}", op.idx, self.constants[op.idx as usize]);
+                len + 1
+            }
+            GetGlobal::CODE => {
+                let (len, op) = GetGlobal::decode(&self.code, idx);
+                println!("GetGlobal[{}]=>{}", op.idx, self.constants[op.idx as usize]);
+                len + 1
+            }
+            SetGlobal::CODE => {
+                let (len, op) = SetGlobal::decode(&self.code, idx);
+                println!("SetGlobal[{}]=>{}", op.idx, self.constants[op.idx as usize]);
+                len + 1
+            }
+            _ => panic!("Bad op code {}", byte)
         }
     }
 }

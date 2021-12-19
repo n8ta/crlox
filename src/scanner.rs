@@ -127,6 +127,50 @@ impl Display for TType {
     }
 }
 impl TType {
+    pub fn tname(self) -> &'static str {
+        match self {
+            TType::LEFT_PAREN => "(",
+            TType::RIGHT_PAREN => ")",
+            TType::LEFT_BRACE => "{",
+            TType::RIGHT_BRACE => "}",
+            TType::COMMA => ",",
+            TType::DOT => ".",
+            TType::MINUS => "-",
+            TType::PLUS => "+",
+            TType::SEMICOLON => ";",
+            TType::SLASH => "/",
+            TType::STAR => "*",
+            TType::BANG => "!",
+            TType::BANG_EQUAL => "!=",
+            TType::EQUAL => "=",
+            TType::EQUAL_EQUAL => "==",
+            TType::GREATER => ">",
+            TType::GREATER_EQUAL => ">=",
+            TType::LESS => "<",
+            TType::LESS_EQUAL => "<=",
+            TType::IDENTIFIER(_) => "identifier",
+            TType::STRING(_) => "string",
+            TType::NUMBER(_) => "number",
+            TType::AND => "and",
+            TType::CLASS => "class",
+            TType::ELSE => "else",
+            TType::FALSE => "false",
+            TType::FOR => "for",
+            TType::FUN => "fun",
+            TType::IF => "if",
+            TType::NIL => "nil",
+            TType::OR => "or",
+            TType::PRINT => "print",
+            TType::RETURN => "return",
+            TType::SUPER => "super",
+            TType::THIS => "this",
+            TType::TRUE => "true",
+            TType::VAR => "var",
+            TType::WHILE => "while",
+            TType::ERROR(_) => "error",
+            TType::EOF => "EOF",
+        }
+    }
     pub fn id(&self) -> TTypeId {
         match self {
             TType::LEFT_PAREN => 0,
@@ -316,7 +360,7 @@ impl Scanner {
                 self.make_token(tk)
             }
             '=' => {
-                let tk = if self.matches('=') { TType::EQUAL_EQUAL } else { TType::EQUAL_EQUAL };
+                let tk = if self.matches('=') { TType::EQUAL_EQUAL } else { TType::EQUAL };
                 self.make_token(tk)
             }
             '<' => {

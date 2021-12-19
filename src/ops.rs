@@ -217,12 +217,72 @@ impl OpTrait for LessOrEq {
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, LessOrEq{})}
 }
 
+#[derive(Debug)]
+pub struct Print {}
+
+impl OpTrait for Print {
+    const CODE: u8 = 17;
+    const SIZE: usize = 1;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
+    }
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Print{})}
+}
+
+#[derive(Debug)]
+pub struct Pop {}
+
+impl OpTrait for Pop {
+    const CODE: u8 = 18;
+    const SIZE: usize = 1;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src);
+    }
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Pop{})}
+}
+
+pub struct DefGlobal {
+    pub idx: u8,
+}
+
+impl OpTrait for DefGlobal {
+    const CODE: u8 = 19;
+    const SIZE: usize = 2;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src.clone());
+        code.add_byte(self.idx, src);
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, DefGlobal{idx: code[idx]})}
+}
+
+pub struct GetGlobal {
+    pub idx: u8,
+}
+
+impl OpTrait for GetGlobal {
+    const CODE: u8 = 20;
+    const SIZE: usize = 2;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src.clone());
+        code.add_byte(self.idx, src);
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, GetGlobal{idx: code[idx]})}
+}
 
 
+pub struct SetGlobal {
+    pub idx: u8,
+}
 
-
-
-
+impl OpTrait for SetGlobal {
+    const CODE: u8 = 21;
+    const SIZE: usize = 2;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src.clone());
+        code.add_byte(self.idx, src);
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, SetGlobal{idx: code[idx]})}
+}
 
 
 

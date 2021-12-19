@@ -43,10 +43,6 @@ impl Value {
             Value::Nil => false,
             Value::Bool(b) => *b,
             _ => true,
-            //             Value::STRING(_) => true,
-            //             Value::FUNC(_) => true,
-            //             Value::INSTANCE(_) => true,
-            //             Value::CLASS(_) => true,
         }
     }
 }

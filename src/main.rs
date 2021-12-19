@@ -2,7 +2,6 @@ use std::io::Read;
 use std::process::exit;
 use std::thread::current;
 use crate::chunk::Chunk;
-use crate::ops::{Add, Const, Div, Mult, Negate, OpTrait, Ret, Sub};
 use crate::source_ref::SourceRef;
 use crate::vm::{InterpError, VM};
 use crate::compiler::Compiler;
@@ -25,7 +24,6 @@ enum Test {
 }
 
 fn main() {
-
     let args: Vec<String> = std::env::args().collect();
     let path = if let Some(path) = args.get(1) {
         path

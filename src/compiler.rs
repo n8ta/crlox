@@ -1,10 +1,11 @@
-use std::cmp::Ordering::Equal;
 use std::collections::HashMap;
+use std::convert::identity;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
-use crate::{Add, Chunk, Const, Div, Mult, Negate, OpTrait, Ret, SourceRef, Sub, value};
-use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True};
+use std::sync::atomic::compiler_fence;
+use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal};
 use crate::scanner::{Num, Scanner, Token, TType, TTypeId};
+use crate::{Chunk, SourceRef};
 use crate::value::{Value};
 
 pub struct CompilerError {
@@ -23,7 +24,7 @@ impl Display for CompilerError {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialOrd, PartialEq)]
 enum Precedence {
     NONE = 0,
     ASSIGNMENT = 1,
@@ -82,7 +83,7 @@ struct Parser {
     had_error: Option<CompilerError>,
 }
 
-type CompilerFnTy = fn(&mut Compiler) -> Result<(), CompilerError>;
+type CompilerFnTy = fn(&mut Compiler, bool) -> Result<(), CompilerError>;
 
 struct Rule {
     prefix: Option<CompilerFnTy>,
@@ -92,6 +93,33 @@ struct Rule {
 
 impl Rule {
     fn new(prefix: Option<CompilerFnTy>, infix: Option<CompilerFnTy>, precedence: Precedence) -> Rule { Rule { prefix, infix, precedence } }
+}
+
+fn synchronize(compiler: &mut Compiler) -> Result<(), CompilerError> {
+    compiler.parser.panic_mode = false;
+    loop {
+        let token = &compiler.parser.current.kind;
+        if let TType::EOF = token {
+            break;
+        }
+        match token {
+            TType::CLASS |
+            TType::FUN | TType::VAR | TType::FOR |
+            TType::IF | TType::WHILE | TType::PRINT |
+            TType::RETURN => return Ok(()),
+            _ => (),
+        }
+        advance(compiler)?;
+    }
+    Ok(())
+}
+
+fn matches(compiler: &mut Compiler, typ: TTypeId) -> bool {
+    if compiler.parser.current.kind.id() != typ {
+        return false;
+    }
+    advance(compiler);
+    true
 }
 
 fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), CompilerError> {
@@ -105,17 +133,85 @@ fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), Com
                              &msg);
     };
 
-    prefix_rule(compiler)?;
+    let can_assign = prec <= Precedence::ASSIGNMENT;
+    prefix_rule(compiler, can_assign)?;
 
     while (prec as u8) <= (get_rule(&compiler.rules, &compiler.parser.current.kind).precedence as u8) {
         advance(compiler)?;
         let infix = get_rule(&compiler.rules, &compiler.parser.previous.kind).infix.expect("No infix for this rule");
-        infix(compiler)?;
+        infix(compiler, false)?;
+    }
+
+    if can_assign && matches(compiler, TType::EQUAL.id()) {
+        Err(CompilerError::new(format!("Invalid assignment target"), compiler.parser.previous.src.clone()))
+    } else {
+        Ok(())
+    }
+
+}
+
+fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<Const, CompilerError> {
+    consume(compiler, TType::IDENTIFIER(format!("")).id(), message)?;
+    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
+        let con = emit_const(compiler, Value::String(str.clone()), compiler.parser.previous.src.clone());
+        Ok(con)
+    } else {
+        let typ = compiler.parser.previous.kind.clone().tname();
+        Err(CompilerError::new(
+            format!("Expected to find an identifier but found a {}",
+                    typ),
+            compiler.parser.previous.src.clone()))
+    }
+}
+
+fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    let const_ref = parse_variable(compiler, "Expected to find an identifier after a var")?;
+    if matches(compiler, TType::EQUAL.id()) {
+        expression(compiler, can_assign)?;
+    } else {
+        Nil {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    }
+    consume(compiler, TType::SEMICOLON.id(), "Expect ';' after variable declaration")?;
+    let def_global = DefGlobal { idx: const_ref.idx };
+    def_global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    Ok(())
+}
+
+fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    if matches(compiler, TType::VAR.id()) {
+        var_declaration(compiler, can_assign)?;
+    } else {
+        statement(compiler, can_assign)?;
+    }
+    if compiler.parser.panic_mode {
+        synchronize(compiler)?;
     }
     Ok(())
 }
 
-fn number(compiler: &mut Compiler) -> Result<(), CompilerError> {
+fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    if matches(compiler, TType::PRINT.id()) {
+        print_statement(compiler, can_assign)
+    } else {
+        expression_statement(compiler, can_assign)
+    }
+}
+
+fn expression_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    expression(compiler, can_assign)?;
+    consume(compiler, TType::SEMICOLON.id(), "Expected ';' after expression.")?;
+    Pop {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    Ok(())
+}
+
+fn print_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    expression(compiler, can_assign)?;
+    consume(compiler, TType::SEMICOLON.id(), "Expect ';' after value.")?;
+    Print {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    Ok(())
+}
+
+fn number(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     if let TType::NUMBER(num) = &compiler.parser.previous.kind {
         emit_const(compiler, Value::Num(num.num), compiler.parser.previous.src.clone());
     } else {
@@ -127,12 +223,12 @@ fn number(compiler: &mut Compiler) -> Result<(), CompilerError> {
     Ok(())
 }
 
-fn expression(compiler: &mut Compiler) -> Result<(), CompilerError> {
+fn expression(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     parse_precedence(compiler, Precedence::ASSIGNMENT)?;
     Ok(())
 }
 
-fn unary(compiler: &mut Compiler) -> Result<(), CompilerError> {
+fn unary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     let typ = compiler.parser.previous.clone();
     parse_precedence(compiler, Precedence::UNARY)?;
     match typ.kind {
@@ -149,12 +245,12 @@ fn emit_const(compiler: &mut Compiler, value: Value, src: SourceRef) -> Const {
     con
 }
 
-fn grouping(compiler: &mut Compiler) -> Result<(), CompilerError> {
-    expression(compiler)?;
-    consume(compiler, TType::RIGHT_PAREN, "Expected a ')' at the end of a grouping")
+fn grouping(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    expression(compiler, can_assign)?;
+    consume(compiler, TType::RIGHT_PAREN.id(), "Expected a ')' at the end of a grouping")
 }
 
-fn binary(compiler: &mut Compiler) -> Result<(), CompilerError> {
+fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     let typ = compiler.parser.previous.clone();
     let rule = get_rule(&compiler.rules, &typ.kind);
     let prec: u8 = rule.precedence as u8;
@@ -175,7 +271,7 @@ fn binary(compiler: &mut Compiler) -> Result<(), CompilerError> {
     Ok(())
 }
 
-fn string(compiler: &mut Compiler) -> Result<(), CompilerError> {
+fn string(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     if let TType::STRING(str) = &compiler.parser.previous.kind {
         emit_const(compiler,
                    Value::String(str.clone()),
@@ -187,7 +283,7 @@ fn string(compiler: &mut Compiler) -> Result<(), CompilerError> {
     }
 }
 
-fn literal(compiler: &mut Compiler) -> Result<(), CompilerError> {
+fn literal(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     match compiler.parser.previous.kind {
         TType::TRUE => True {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
         TType::FALSE => False {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
@@ -197,9 +293,31 @@ fn literal(compiler: &mut Compiler) -> Result<(), CompilerError> {
     Ok(())
 }
 
+fn variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    named_variable(compiler, can_assign)
+}
 
-fn consume(compiler: &mut Compiler, typ: TType, message: &str) -> Result<(), CompilerError> {
-    if compiler.parser.current.kind == typ {
+fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
+        let const_ref = compiler.current_chunk.add_const(Value::String(str.clone()));
+        if can_assign && matches(compiler, TType::EQUAL.id()) {
+            expression(compiler, can_assign)?;
+            SetGlobal{idx: const_ref.idx}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+        } else {
+            GetGlobal{idx: const_ref.idx}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+        }
+        Ok(())
+    } else {
+        let typ = compiler.parser.previous.kind.clone().tname();
+        Err(CompilerError::new(
+            format!("Expected to find a variable name but found a {}",
+                    typ),
+            compiler.parser.previous.src.clone()))
+    }
+}
+
+fn consume(compiler: &mut Compiler, typ: TTypeId, message: &str) -> Result<(), CompilerError> {
+    if compiler.parser.current.kind.id() == typ {
         advance(compiler)?;
         return Ok(());
     }
@@ -276,7 +394,7 @@ impl Compiler {
             rules.insert(TType::GREATER_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
             rules.insert(TType::LESS.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
             rules.insert(TType::LESS_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::IDENTIFIER(format!("")).id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::IDENTIFIER(format!("")).id(), Rule::new(Some(variable), None, Precedence::NONE));
             rules.insert(TType::STRING(format!("")).id(), Rule::new(Some(string), None, Precedence::NONE));
             rules.insert(TType::NUMBER(Num { num: 0.0 }).id(), Rule::new(Some(number), None, Precedence::NONE));
             rules.insert(TType::AND.id(), Rule::new(None, None, Precedence::NONE));
@@ -314,8 +432,10 @@ impl Compiler {
 
     fn run(&mut self) -> Result<(), CompilerError> {
         advance(self)?;
-        expression(self)?;
-        consume(self, TType::EOF, "Expected end of file")?;
+
+        while !matches(self, TType::EOF.id()) {
+            declaration(self, true)?;
+        }
         if let Some(err) = &self.parser.had_error {
             return Err(CompilerError::new(err.msg.clone(), err.src.clone()));
         }

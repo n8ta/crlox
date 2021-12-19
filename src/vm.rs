@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use crate::{Add, Chunk, Const, Div, Mult, Negate, OpTrait, Ret, SourceRef, Sub};
-use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True};
+use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal};
 use crate::source_ref::Source;
 use crate::trie::Trie;
 use crate::value::Value;
+use crate::ops::OpTrait;
+use crate::{Chunk, SourceRef};
+use crate::vm::InterpErrorType::CompilerError;
 
 #[derive(Debug)]
 pub enum InterpErrorType {
@@ -50,6 +53,7 @@ pub struct VM<'a> {
     consts: &'a Vec<Value>,
     ip: usize,
     stack: Vec<Value>,
+    globals: HashMap<String, Value>,
 }
 
 enum Test {
@@ -65,6 +69,7 @@ impl<'a> VM<'a> {
             code: chunk.code(),
             consts: chunk.consts(),
             ip: 0,
+            globals: HashMap::new(),
         };
         vm.run()
     }
@@ -87,14 +92,14 @@ impl<'a> VM<'a> {
                 Err(InterpError::compile(src, format!("Compiler error: unable to load value for this option")))
             }
             Some(val) => {
-                println!("Popping {:?}", &val);
+                // println!("<== Popping {:?}", &val);
                 Ok(val)
             }
         }
     }
 
     fn push(&mut self, v: Value) {
-        println!("Pushing {:?}", v);
+        println!("==> Pushing {:?}", v);
         self.stack.push(v);
     }
 
@@ -254,6 +259,63 @@ impl<'a> VM<'a> {
                                                              format!("Cannot compare {} and {} with the <= operation", a.tname(), b.tname())))
                     }
                     0
+                }
+                Print::CODE => {
+                    let value = self.pop()?;
+                    // println!("PRINT==> {}", value);
+                    0
+                }
+                Pop::CODE => {
+                    self.pop()?;
+                    0
+                }
+                DefGlobal::CODE => {
+                    let (len, def_global) = DefGlobal::decode(self.code, self.ip + 1);
+                    let global_name = self.consts.get(def_global.idx as usize).unwrap();
+                    let popped = self.pop()?;
+                    println!("Defining global '{}' as '{}'", global_name, popped);
+                    if let Value::String(str) = global_name {
+                        self.globals.insert(global_name.to_string(), popped);
+                    } else {
+                        panic!("Compiler error, non-string constant passed to DefGlobal");
+                    }
+                    len
+                }
+                GetGlobal::CODE => {
+                    let (len, get_global) = GetGlobal::decode(self.code, self.ip + 1);
+                    let global_idx = get_global.idx as usize;
+                    let global_name = self.consts.get(global_idx).expect("Compiler error, bad index in get global op");
+                    if let Value::String(global_name) = global_name {
+                        println!("Getting global {}", global_name);
+                        match self.globals.get(global_name) {
+                            None => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
+                                                                    format!("Global variable {} not found", global_name))),
+                            Some(v) => {
+                                println!("\tGlobal is {}", v);
+                                self.push(v.clone())
+                            }
+                        }
+                    } else {
+                        panic!("Compiler error, non-string constant passed to GetGlobal");
+                    }
+                    len
+                }
+                SetGlobal::CODE => {
+                    let (len, set_global) = SetGlobal::decode(self.code, self.ip + 1);
+                    let global_name = self.consts.get(set_global.idx as usize).expect("Compiler error, bad index in get global op");
+                    let new_val = self.pop()?;
+                    println!("Setting global {} to {}", global_name, new_val);
+                    if let Value::String(global_name) = global_name {
+                        if let Some(_) = self.globals.get(global_name) {
+                            self.globals.insert(global_name.clone(), new_val);
+                        } else {
+                            return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
+                                                            format!("Cannot assign to global variable {} since it has not been declared", global_name)));
+                        }
+                    } else {
+                        panic!("Compiler error, non-string constant passed to GetGlobal");
+                    }
+                    len
                 }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))
             };

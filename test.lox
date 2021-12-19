@@ -1,1 +1,8 @@
-"st" + "ri" + "ng" == "string"
+var breakfast = "beignets";
+var beverage = "cafe au lait";
+breakfast = "beignets with " + beverage;
+
+var yyy = 1 < 5;
+yyy = breakfast == breakfast + "1";
+print yyy;
+print breakfast;
