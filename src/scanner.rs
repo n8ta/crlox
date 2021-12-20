@@ -4,7 +4,8 @@ use std::num::ParseFloatError;
 use std::rc::Rc;
 use std::str::FromStr;
 use crate::source_ref::Source;
-use crate::SourceRef;
+use crate::{SourceRef, Symbolizer};
+use crate::symbolizer::Symbol;
 use crate::trie::Trie;
 
 #[derive(Clone, Debug)]
@@ -56,8 +57,8 @@ pub enum TType {
     LESS,
     LESS_EQUAL,
     // Literals.
-    IDENTIFIER(String),
-    STRING(String),
+    IDENTIFIER(Symbol),
+    STRING(Symbol),
     NUMBER(Num),
     // Keywords.
     AND,
@@ -79,6 +80,9 @@ pub enum TType {
     ERROR(String),
     EOF,
 }
+pub const IDENTIFIER_TTYPE_ID: TTypeId = 19;
+pub const STRING_TTYPE_ID: TTypeId = 20;
+
 impl Display for TType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let str = match self {
@@ -192,8 +196,8 @@ impl TType {
             TType::GREATER_EQUAL => 16,
             TType::LESS => 17,
             TType::LESS_EQUAL => 18,
-            TType::IDENTIFIER(_) => 19,
-            TType::STRING(_) => 20,
+            TType::IDENTIFIER(_) => IDENTIFIER_TTYPE_ID,
+            TType::STRING(_) => STRING_TTYPE_ID,
             TType::NUMBER(_) => 21,
             TType::AND => 22,
             TType::CLASS => 23,
@@ -224,10 +228,11 @@ pub struct Scanner {
     src: Rc<Source>,
     chars: Vec<char>,
     keywords: Trie<u8, TType>,
+    symbolizer: Symbolizer,
 }
 
 impl Scanner {
-    pub fn new(src: String) -> Scanner {
+    pub fn new(src: String, symbolizer: Symbolizer) -> Scanner {
         println!("Scanner src: {}", &src);
         let mut keywords: Trie<u8, TType> = Trie::new();
         {
@@ -265,6 +270,7 @@ impl Scanner {
             line: 0,
             chars: src.chars().collect(),
             src: Rc::new(Source::new(src)),
+            symbolizer,
         }
     }
     fn is_at_end(&self) -> bool {
@@ -387,12 +393,14 @@ impl Scanner {
                 }
                 self.advance();
                 let literal = self.chars[self.start+1..self.current-1].iter().collect();
-                self.make_token(TType::STRING(literal))
+                let sym = self.symbolizer.get_symbol(literal);
+                self.make_token(TType::STRING(sym))
             }
             _ => {
                 if c.is_alphabetic() {
                     while self.peek().is_alphanumeric() { self.advance(); }
                     let ident: String = self.chars[self.start..self.current].iter().collect::<String>();
+                    let ident = self.symbolizer.get_symbol(ident);
                     if let Some(ttype) = self.keywords.find(ident.as_bytes()) {
                         self.make_token((*ttype).clone())
                     } else {

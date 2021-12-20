@@ -1,11 +1,11 @@
 use std::io::Read;
 use std::process::exit;
-use std::thread::current;
+use std::rc::Rc;
 use crate::chunk::Chunk;
 use crate::source_ref::SourceRef;
-use crate::vm::{InterpError, VM};
+use crate::vm::{VM};
 use crate::compiler::Compiler;
-use crate::value::Value;
+use crate::symbolizer::{Symbol, Symbolizer};
 
 mod value;
 mod ops;
@@ -15,7 +15,7 @@ mod vm;
 mod scanner;
 mod compiler;
 mod trie;
-mod intern;
+mod symbolizer;
 
 #[repr(u8)]
 enum Test {
@@ -47,7 +47,10 @@ fn main() {
         eprintln!("Error: {}", err);
         exit(-1);
     }
-    let chunk = match Compiler::compile(contents) {
+
+    let symbolizer = Symbolizer::new();
+
+    let chunk = match Compiler::compile(contents, symbolizer.clone()) {
         Ok(c) => c,
         Err(err) => {
             eprintln!("{}", err);
@@ -58,7 +61,7 @@ fn main() {
     chunk.disassemble();
 
     println!("chunk: {:?}", &chunk);
-    let res = VM::interpret(&chunk);
+    let res = VM::interpret(&chunk, symbolizer.clone());
     match res {
         Ok(r) => println!("success: {}", r),
         Err(r) => eprintln!("{}", r),

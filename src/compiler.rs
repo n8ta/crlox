@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
-use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal};
-use crate::scanner::{Num, Scanner, Token, TType, TTypeId};
-use crate::{Chunk, SourceRef};
+use std::rc::Rc;
+use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal};
+use crate::scanner::{IDENTIFIER_TTYPE_ID, Num, Scanner, STRING_TTYPE_ID, Token, TType, TTypeId};
+use crate::{Chunk, SourceRef, Symbol};
 use crate::scanner::TType::PRINT;
+use crate::symbolizer::Symbolizer;
 use crate::value::{Value};
 
 pub struct CompilerError {
@@ -67,12 +69,107 @@ impl From<u8> for Precedence {
     }
 }
 
+struct Local {
+    name: Symbol,
+    depth: usize,
+    src: SourceRef,
+}
+
 pub struct Compiler {
     src: String,
     parser: Parser,
     current_chunk: Chunk,
     rules: HashMap<TTypeId, Rule>,
     scanner: Scanner,
+    symbolizer: Symbolizer,
+    local_count: usize,
+    scope_depth: usize,
+    locals: Vec<Local>,
+}
+
+impl Compiler {
+    pub fn compile(src: String, symbolizer: Symbolizer) -> Result<Chunk, CompilerError> {
+        let mut compiler = Compiler::new(src, symbolizer);
+        compiler.run()?;
+        Ret {}.write(&mut compiler.current_chunk, SourceRef::simple());
+        let mut c = Chunk::new();
+        swap(&mut c, &mut compiler.current_chunk);
+        Ok(c)
+    }
+    fn new(src: String, symbolizer: Symbolizer) -> Compiler {
+        let scanner = Scanner::new(src.clone(), symbolizer.clone());
+        let mut rules = HashMap::new();
+        {
+            rules.insert(TType::LEFT_PAREN.id(), Rule::new(Some(grouping), None, Precedence::NONE));
+            rules.insert(TType::RIGHT_PAREN.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::LEFT_BRACE.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::RIGHT_BRACE.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::COMMA.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::DOT.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::MINUS.id(), Rule::new(Some(unary), Some(binary), Precedence::TERM));
+            rules.insert(TType::PLUS.id(), Rule::new(None, Some(binary), Precedence::TERM));
+            rules.insert(TType::SEMICOLON.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::SLASH.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
+            rules.insert(TType::STAR.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
+            rules.insert(TType::BANG.id(), Rule::new(Some(unary), None, Precedence::NONE));
+            rules.insert(TType::BANG_EQUAL.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
+            rules.insert(TType::EQUAL.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::EQUAL_EQUAL.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
+            rules.insert(TType::GREATER.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
+            rules.insert(TType::GREATER_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
+            rules.insert(TType::LESS.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
+            rules.insert(TType::LESS_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
+            rules.insert(IDENTIFIER_TTYPE_ID, Rule::new(Some(variable), None, Precedence::NONE));
+            rules.insert(STRING_TTYPE_ID, Rule::new(Some(string), None, Precedence::NONE));
+            rules.insert(TType::NUMBER(Num { num: 0.0 }).id(), Rule::new(Some(number), None, Precedence::NONE));
+            rules.insert(TType::AND.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::CLASS.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::ELSE.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::FALSE.id(), Rule::new(Some(literal), None, Precedence::NONE));
+            rules.insert(TType::FOR.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::FUN.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::IF.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::NIL.id(), Rule::new(Some(literal), None, Precedence::NONE));
+            rules.insert(TType::OR.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::PRINT.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::RETURN.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::SUPER.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::THIS.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::TRUE.id(), Rule::new(Some(literal), None, Precedence::NONE));
+            rules.insert(TType::VAR.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::WHILE.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::ERROR(format!("")).id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::EOF.id(), Rule::new(None, None, Precedence::NONE));
+        }
+        Compiler {
+            locals: vec![],
+            src,
+            current_chunk: Chunk::new(),
+            scanner,
+            parser: Parser {
+                panic_mode: false,
+                had_error: None,
+                current: Token::new(TType::AND, SourceRef::simple()),
+                previous: Token::new(TType::AND, SourceRef::simple()),
+            },
+            symbolizer,
+            rules,
+            local_count: 0,
+            scope_depth: 0,
+        }
+    }
+
+    fn run(&mut self) -> Result<(), CompilerError> {
+        advance(self)?;
+
+        while !matches(self, TType::EOF.id()) {
+            declaration(self, true)?;
+        }
+        if let Some(err) = &self.parser.had_error {
+            return Err(CompilerError::new(err.msg.clone(), err.src.clone()));
+        }
+        Ok(())
+    }
 }
 
 struct Parser {
@@ -121,6 +218,21 @@ fn matches(compiler: &mut Compiler, typ: TTypeId) -> bool {
     true
 }
 
+fn begin_scope(compiler: &mut Compiler) {
+    compiler.scope_depth += 1;
+    compiler.local_count = 0;
+}
+
+fn end_scope(compiler: &mut Compiler) {
+    compiler.scope_depth -= 1;
+
+    while compiler.local_count > 0 && compiler.locals[compiler.local_count].depth > compiler.scope_depth{
+        let popped = compiler.locals.pop().unwrap();
+        Pop{}.write(&mut compiler.current_chunk, popped.src );
+        compiler.local_count -= 1;
+    }
+}
+
 fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), CompilerError> {
     advance(compiler)?;
     let prefix_rule = get_rule(&compiler.rules, &compiler.parser.previous.kind); // todo: error?
@@ -146,17 +258,54 @@ fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), Com
     } else {
         Ok(())
     }
-
 }
 
-fn identifier_constant(str: &str, chunk: &mut Chunk,) -> Result<Const, CompilerError>  {
-    Ok(chunk.add_const(Value::String(str.to_string())))
+fn identifier_constant(sym: Symbol, chunk: &mut Chunk) -> Result<Const, CompilerError> {
+    Ok(chunk.add_const(Value::String(sym)))
+}
+
+fn add_local(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Result<(), CompilerError> {
+    if compiler.locals.len() > 255 {
+        return Err(CompilerError::new(format!("Hit maximum of 255 local variables in scope"), compiler.parser.previous.src.clone()));
+    }
+    compiler.locals.push(Local { name, depth: compiler.scope_depth, src});
+    compiler.local_count += 1;
+    Ok(())
+}
+
+fn define_variable(compiler: &mut Compiler, global: DefGlobal) -> Result<(), CompilerError> {
+    if compiler.scope_depth > 0 {} else {
+        global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone())
+    }
+    Ok(())
+}
+
+fn declare_variable(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Result<(), CompilerError> {
+    if compiler.scope_depth == 0 {
+        Ok(())
+    } else {
+        for local in compiler.locals.iter() {
+            if local.depth < compiler.scope_depth {
+                break
+            }
+            if local.name == name {
+                return Err(CompilerError::new(format!("Cannot define two variables with the name {}", name), compiler.parser.previous.src.clone()))
+            }
+        }
+        add_local(compiler, name, src);
+        Ok(())
+    }
 }
 
 fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<Const, CompilerError> {
-    consume(compiler, TType::IDENTIFIER(format!("")).id(), message)?;
-    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
-        identifier_constant(str, &mut compiler.current_chunk)
+    consume(compiler, IDENTIFIER_TTYPE_ID, message)?;
+    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind.clone() {
+        declare_variable(compiler, str.clone(), compiler.parser.previous.src.clone()) ?;
+        if compiler.scope_depth > 0 {
+            Ok(compiler.current_chunk.add_const(Value::String(str.clone())))
+        } else {
+            identifier_constant(str.clone(), &mut compiler.current_chunk)
+        }
     } else {
         let typ = compiler.parser.previous.kind.clone().tname();
         Err(CompilerError::new(
@@ -164,6 +313,17 @@ fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<Const, Compi
                     typ),
             compiler.parser.previous.src.clone()))
     }
+}
+
+fn check(compiler: &mut Compiler, typ: TTypeId) -> bool {
+    compiler.parser.current.kind.id() == typ
+}
+
+fn block(compiler: &mut Compiler) -> Result<(), CompilerError> {
+    while !check(compiler, TType::RIGHT_BRACE.id()) && !check(compiler, TType::EOF.id()) {
+        declaration(compiler, false)?;
+    }
+    consume(compiler, TType::RIGHT_BRACE.id(), "Expected '}' after block")
 }
 
 fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
@@ -174,8 +334,9 @@ fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
         Nil {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
     }
     consume(compiler, TType::SEMICOLON.id(), "Expect ';' after variable declaration")?;
-    let def_global = DefGlobal { idx: const_ref.idx };
-    def_global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    define_variable(compiler,DefGlobal { idx: const_ref.idx });
+    // let def_global =
+    // def_global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
     Ok(())
 }
 
@@ -194,6 +355,11 @@ fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compiler
 fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     if matches(compiler, TType::PRINT.id()) {
         print_statement(compiler, can_assign)
+    } else if matches(compiler, TType::LEFT_BRACE.id()) {
+        begin_scope(compiler);
+        block(compiler)?;
+        end_scope(compiler);
+        Ok(())
     } else {
         expression_statement(compiler, can_assign)
     }
@@ -299,33 +465,50 @@ fn variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerErr
     named_variable(compiler, can_assign)
 }
 
-fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
-        let const_ref = identifier_constant(str, &mut compiler.current_chunk)?;
-
-        if can_assign && matches(compiler, TType::EQUAL.id()) {
-            expression(compiler, can_assign)?;
-            SetGlobal{idx: const_ref.idx}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
-        } else {
-            GetGlobal{idx: const_ref.idx}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+enum Resolution {
+    Local(u8),
+    Global,
+}
+fn resolve_local(compiler: &mut Compiler, sym: &Symbol) -> Resolution {
+    for (i, local) in compiler.locals.iter().rev().enumerate() {
+        if local.name == *sym {
+            return Resolution::Local(i as u8)
         }
+    }
+    Resolution::Global
+
+}
+
+fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind.clone() {
+
+        let prev = compiler.parser.previous.src.clone();
+        match resolve_local(compiler, str) {
+            Resolution::Local(local_idx) => {
+                if can_assign && matches(compiler, TType::EQUAL.id()) {
+                    expression(compiler, can_assign)?;
+                    SetLocal { idx: local_idx }.write(&mut compiler.current_chunk, prev);
+                } else {
+                    GetLocal { idx: local_idx }.write(&mut compiler.current_chunk, prev);
+                }
+            }
+            Resolution::Global => {
+                let const_ref = identifier_constant(str.clone(), &mut compiler.current_chunk)?;
+                if can_assign && matches(compiler, TType::EQUAL.id()) {
+                    expression(compiler, can_assign)?;
+                    SetGlobal { idx: const_ref.idx }.write(&mut compiler.current_chunk, prev);
+                } else {
+                    GetGlobal { idx: const_ref.idx }.write(&mut compiler.current_chunk, prev);
+                }
+
+            }
+        }
+
+
         Ok(())
-
-
     } else {
         panic!("compiler error");
     }
-
-    // if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind {
-    //     let const_ref = compiler.current_chunk.add_const(Value::String(str.clone()));
-    //     Ok(())
-    // } else {
-    //     let typ = compiler.parser.previous.kind.clone().tname();
-    //     Err(CompilerError::new(
-    //         format!("Expected to find a variable name but found a {}",
-    //                 typ),
-    //         compiler.parser.previous.src.clone()))
-    // }
 }
 
 fn consume(compiler: &mut Compiler, typ: TTypeId, message: &str) -> Result<(), CompilerError> {
@@ -371,86 +554,4 @@ fn error_at(compiler: &mut Compiler, message: &str, current: bool) -> Result<(),
     compiler.parser.panic_mode = true;
     let src = if current { compiler.parser.current.src.clone() } else { compiler.parser.previous.src.clone() };
     Err(CompilerError::new(message.to_string(), src))
-}
-
-
-impl Compiler {
-    pub fn compile(src: String) -> Result<Chunk, CompilerError> {
-        let mut compiler = Compiler::new(src);
-        compiler.run()?;
-        Ret {}.write(&mut compiler.current_chunk, SourceRef::simple());
-        let mut c = Chunk::new();
-        swap(&mut c, &mut compiler.current_chunk);
-        Ok(c)
-    }
-    fn new(src: String) -> Compiler {
-        let scanner = Scanner::new(src.clone());
-        let mut rules = HashMap::new();
-        {
-            rules.insert(TType::LEFT_PAREN.id(), Rule::new(Some(grouping), None, Precedence::NONE));
-            rules.insert(TType::RIGHT_PAREN.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::LEFT_BRACE.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::RIGHT_BRACE.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::COMMA.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::DOT.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::MINUS.id(), Rule::new(Some(unary), Some(binary), Precedence::TERM));
-            rules.insert(TType::PLUS.id(), Rule::new(None, Some(binary), Precedence::TERM));
-            rules.insert(TType::SEMICOLON.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::SLASH.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
-            rules.insert(TType::STAR.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
-            rules.insert(TType::BANG.id(), Rule::new(Some(unary), None, Precedence::NONE));
-            rules.insert(TType::BANG_EQUAL.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
-            rules.insert(TType::EQUAL.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::EQUAL_EQUAL.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
-            rules.insert(TType::GREATER.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::GREATER_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::LESS.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::LESS_EQUAL.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::IDENTIFIER(format!("")).id(), Rule::new(Some(variable), None, Precedence::NONE));
-            rules.insert(TType::STRING(format!("")).id(), Rule::new(Some(string), None, Precedence::NONE));
-            rules.insert(TType::NUMBER(Num { num: 0.0 }).id(), Rule::new(Some(number), None, Precedence::NONE));
-            rules.insert(TType::AND.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::CLASS.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::ELSE.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::FALSE.id(), Rule::new(Some(literal), None, Precedence::NONE));
-            rules.insert(TType::FOR.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::FUN.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::IF.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::NIL.id(), Rule::new(Some(literal), None, Precedence::NONE));
-            rules.insert(TType::OR.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::PRINT.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::RETURN.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::SUPER.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::THIS.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::TRUE.id(), Rule::new(Some(literal), None, Precedence::NONE));
-            rules.insert(TType::VAR.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::WHILE.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::ERROR(format!("")).id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::EOF.id(), Rule::new(None, None, Precedence::NONE));
-        }
-        Compiler {
-            src,
-            current_chunk: Chunk::new(),
-            scanner,
-            parser: Parser {
-                panic_mode: false,
-                had_error: None,
-                current: Token::new(TType::AND, SourceRef::simple()),
-                previous: Token::new(TType::AND, SourceRef::simple()),
-            },
-            rules,
-        }
-    }
-
-    fn run(&mut self) -> Result<(), CompilerError> {
-        advance(self)?;
-
-        while !matches(self, TType::EOF.id()) {
-            declaration(self, true)?;
-        }
-        if let Some(err) = &self.parser.had_error {
-            return Err(CompilerError::new(err.msg.clone(), err.src.clone()));
-        }
-        Ok(())
-    }
 }

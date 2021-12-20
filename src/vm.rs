@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal};
-use crate::source_ref::Source;
-use crate::trie::Trie;
+use std::rc::Rc;
+use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal, GetLocal, SetLocal};
 use crate::value::Value;
 use crate::ops::OpTrait;
-use crate::{Chunk, SourceRef};
+use crate::{Chunk, SourceRef, Symbol, Symbolizer};
 use crate::vm::InterpErrorType::CompilerError;
 
 #[derive(Debug)]
@@ -53,7 +52,8 @@ pub struct VM<'a> {
     consts: &'a Vec<Value>,
     ip: usize,
     stack: Vec<Value>,
-    globals: HashMap<String, Value>,
+    globals: HashMap<Symbol, Value>,
+    symbolizer: Symbolizer,
 }
 
 enum Test {
@@ -62,8 +62,9 @@ enum Test {
 }
 
 impl<'a> VM<'a> {
-    pub fn interpret(chunk: &'a Chunk) -> Result<Value, InterpError> {
+    pub fn interpret(chunk: &'a Chunk, symbolizer: Symbolizer) -> Result<Value, InterpError> {
         let mut vm = VM {
+            symbolizer,
             chunk,
             stack: vec![],
             code: chunk.code(),
@@ -98,6 +99,13 @@ impl<'a> VM<'a> {
         }
     }
 
+    fn peek_at(&self, dist: u8) -> Result<Value, InterpError> {
+        match self.stack.get(self.stack.len() - 1 - (dist as usize)) {
+            None => Err(InterpError::compile(None, format!("Tried to peek at dist {} in the stack but the stack has length {}", dist, self.stack.len()))),
+            Some(v) => Ok(v.clone())
+        }
+    }
+
     fn peek(&self) -> &Value {
         self.stack.last().unwrap()
     }
@@ -116,7 +124,7 @@ impl<'a> VM<'a> {
                     let (_len, _ret) = Ret::decode(self.code, self.ip + 1);
                     // let popped = self.pop()?;
                     // return Ok(popped);
-                    return Ok(Value::Num(1.0))
+                    return Ok(Value::Num(1.0));
                 }
                 Const::CODE => {
                     let (_len, con) = Const::decode(self.code, self.ip + 1);
@@ -142,9 +150,8 @@ impl<'a> VM<'a> {
                     let res = match (&a, &b) {
                         (Value::Num(a), Value::Num(b)) => Value::Num(a + b),
                         (Value::String(str1), Value::String(str2)) => {
-                            let mut new_str = str1.clone();
-                            new_str.push_str(str2);
-                            Value::String(new_str)
+                            let mut new_str = format!("{}{}", str1.to_str(), str2.to_str());
+                            Value::String(self.symbolizer.get_symbol(new_str))
                         }
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
                                                              format!("Cannot add a {} and a {}", a.tname(), b.tname())))
@@ -280,8 +287,8 @@ impl<'a> VM<'a> {
                     let global_name = self.consts.get(def_global.idx as usize).unwrap();
                     let popped = self.pop()?;
                     println!("Defining global '{}' as '{}'", global_name, popped);
-                    if let Value::String(str) = global_name {
-                        self.globals.insert(global_name.to_string(), popped);
+                    if let Value::String(sym) = global_name {
+                        self.globals.insert(sym.clone(), popped);
                     } else {
                         panic!("Compiler error, non-string constant passed to DefGlobal");
                     }
@@ -312,7 +319,7 @@ impl<'a> VM<'a> {
                     let new_val = self.peek();
                     println!("Setting global {} to {}", global_name, new_val);
                     if let Value::String(global_name) = global_name {
-                        if let Some(_) = self.globals.get(global_name) {
+                        if self.globals.contains_key(global_name) {
                             self.globals.insert(global_name.clone(), new_val.clone());
                         } else {
                             return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
@@ -321,6 +328,18 @@ impl<'a> VM<'a> {
                     } else {
                         panic!("Compiler error, non-string constant passed to GetGlobal");
                     }
+                    len
+                }
+                GetLocal::CODE => {
+                    let (len, get_local) = GetLocal::decode(self.code, self.ip + 1);
+                    let popped = self.peek_at(get_local.idx)?;
+                    self.push(popped);
+                    len
+                }
+                SetLocal::CODE => {
+                    let (len, set_local) = SetLocal::decode(self.code, self.ip + 1);
+                    let stack_len = self.stack.len();
+                    self.stack[stack_len-1-(set_local.idx as usize)] = self.peek().clone();
                     len
                 }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))

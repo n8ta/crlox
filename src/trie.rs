@@ -12,7 +12,7 @@ impl<T: Eq + Clone, V> Trie<T, V> {
         Trie { children: vec![], terminal: None }
     }
     fn in_children(trie: &Trie<T, V>, val: &T) -> Option<usize> {
-        for (i, (child_val, child_trie)) in trie.children.iter().enumerate() {
+        for (i, (child_val, _child_trie)) in trie.children.iter().enumerate() {
             if *child_val == *val {
                 return Some(i);
             }
@@ -109,7 +109,7 @@ fn test_trie_rand() {
         let mut inserted: HashMap<Vec<usize>, u8> = HashMap::new();
         let mut inserted_vec: Vec<Vec<usize>> = vec![];
 
-        for i in 0..total_ops {
+        for _ in 0..total_ops {
             println!("Running {} times", total_ops);
             let action = rng.gen_range(0..2);
             if action == 1 {
@@ -140,7 +140,7 @@ fn test_trie_rand() {
         }
     }
 
-    for _ in 0..100 {
+    for _ in 0..1 {
         test_a_trie();
     }
 }

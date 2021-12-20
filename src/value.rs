@@ -1,11 +1,12 @@
 use std::fmt::{Display, Formatter};
+use crate::Symbol;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Num(f64),
     Bool(bool),
     Nil,
-    String(String)
+    String(Symbol)
 }
 
 // #[derive(Clone, Debug, PartialEq)]

@@ -1,4 +1,3 @@
-use std::ops::Neg;
 use crate::{Chunk, SourceRef};
 use crate::source_ref::Source;
 
@@ -284,6 +283,34 @@ impl OpTrait for SetGlobal {
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, SetGlobal{idx: code[idx]})}
 }
 
+pub struct GetLocal {
+    pub idx: u8,
+}
+
+impl OpTrait for GetLocal {
+    const CODE: u8 = 22;
+    const SIZE: usize = 2;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src.clone());
+        code.add_byte(self.idx, src);
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, GetLocal{idx: code[idx]})}
+}
+
+
+pub struct SetLocal {
+    pub idx: u8,
+}
+
+impl OpTrait for SetLocal {
+    const CODE: u8 = 23;
+    const SIZE: usize = 2;
+    fn write(&self, code: &mut Chunk, src: SourceRef) {
+        code.add_byte(Self::CODE, src.clone());
+        code.add_byte(self.idx, src);
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, SetLocal{idx: code[idx]})}
+}
 
 
 
