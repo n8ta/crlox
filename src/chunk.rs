@@ -7,6 +7,10 @@ pub struct Write {
     pub len: usize,
 }
 
+impl Write {
+    pub fn new(start: usize, len: usize) -> Self { write { start, len }}
+}
+
 impl Chunk {
     pub fn len(&self) -> usize {
         self.code.len()
