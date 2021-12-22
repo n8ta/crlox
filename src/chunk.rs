@@ -2,15 +2,17 @@ use crate::ops::{OpTrait, Add, Const, Div, EqualEqual, False, Greater, GreaterOr
 use crate::SourceRef;
 use crate::value::Value;
 
-#[derive(Clone, Debug)]
-pub struct Chunk {
-    code: Vec<u8>,
-    sources: Vec<SourceRef>,
-    // Same len as code
-    constants: Vec<Value>,
+
+pub struct Write {
+    pub start: usize,
+    pub len: usize,
 }
 
+
 impl Chunk {
+    pub fn len(&self) -> usize {
+        self.code.len()
+    }
     pub fn code(&self) -> &Vec<u8> {
         &self.code
     }
@@ -22,9 +24,27 @@ impl Chunk {
         self.constants.push(constant);
         Const { idx: (self.constants.len() - 1) as u8 }
     }
-    pub fn add_byte(&mut self, byte: u8, src: SourceRef) {
+    pub fn add_bytes(&mut self, bytes: &[u8], src: SourceRef) -> Write {
+        let idx = self.code.len();
+        for byte in bytes.iter() {
+            self.code.push(*byte);
+            self.sources.push(src.clone());
+        }
+        Write::new(idx, bytes.len())
+    }
+    pub fn add_byte(&mut self, byte: u8, src: SourceRef) -> Write {
+        let idx = self.code.len();
         self.code.push(byte);
         self.sources.push(src);
+        Write::new(idx, 1)
+    }
+    pub fn overwrite(&mut self, write: &Write, bytes: &[u8]) {
+        if bytes.len() != write.len {
+            panic!("Mismatched write and bytes!")
+        }
+        for offset in 0..write.len {
+            self.code[offset + write.start] = bytes[offset]
+        }
     }
     pub fn new() -> Chunk { Chunk { code: vec![], sources: vec![], constants: vec![] } }
     pub fn disassemble(&self) {
