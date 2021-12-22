@@ -294,7 +294,7 @@ impl<'a> VM<'a> {
                     } else {
                         panic!("Compiler error, non-string constant passed to DefGlobal");
                     }
-                    self.ip = 1 + len;
+                    self.ip += 1 + len;
                 }
                 GetGlobal::CODE => {
                     let (len, get_global) = GetGlobal::decode(self.code, self.ip + 1);
@@ -313,7 +313,7 @@ impl<'a> VM<'a> {
                     } else {
                         panic!("Compiler error, non-string constant passed to GetGlobal");
                     }
-                    self.ip = 1 + len;
+                    self.ip += 1 + len;
                 }
                 SetGlobal::CODE => {
                     let (len, set_global) = SetGlobal::decode(self.code, self.ip + 1);
@@ -330,20 +330,20 @@ impl<'a> VM<'a> {
                     } else {
                         panic!("Compiler error, non-string constant passed to GetGlobal");
                     }
-                    self.ip = 1 + len;
+                    self.ip += 1 + len;
                 }
                 GetLocal::CODE => {
                     let (len, get_local) = GetLocal::decode(self.code, self.ip + 1);
                     let peeked = self.peek_at(get_local.idx)?;
                     self.push(peeked);
-                    self.ip = 1 + len;
+                    self.ip += 1 + len;
                 }
                 SetLocal::CODE => {
                     let (len, set_local) = SetLocal::decode(self.code, self.ip + 1);
                     let stack_len = self.stack.len();
                     println!("Setting local to {}", self.peek().clone());
                     self.stack[set_local.idx as usize] = self.peek().clone();
-                    self.ip = 1 + len;
+                    self.ip += 1 + len;
                 }
                 RelJumpIfFalse::CODE => {
                     let (len, jump) = RelJumpIfFalse::decode(self.code, self.ip + 1);
