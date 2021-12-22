@@ -69,6 +69,7 @@ impl From<u8> for Precedence {
     }
 }
 
+#[derive(Debug)]
 struct Local {
     name: Symbol,
     depth: usize,
@@ -226,8 +227,11 @@ fn begin_scope(compiler: &mut Compiler) {
 
 fn end_scope(compiler: &mut Compiler) {
     compiler.scope_depth -= 1;
-
-    while compiler.local_count > 0 && compiler.locals[compiler.local_count-1].depth > compiler.scope_depth{
+    // println!("Local count {} Scope depth {}", compiler.local_count, compiler.scope_depth);
+    // println!("Last Local {:?}", &compiler.locals.last().unwrap());
+    // println!("bool1: {}", compiler.local_count > 0);
+    // println!("bool2: {}", compiler.locals[compiler.local_count-1].depth > compiler.scope_depth);
+    while compiler.local_count > 0 && compiler.locals.last().unwrap().depth > compiler.scope_depth{
         let popped = compiler.locals.pop().unwrap();
         Pop{}.write(&mut compiler.current_chunk, popped.src );
         compiler.local_count -= 1;
