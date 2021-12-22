@@ -73,6 +73,7 @@ struct Local {
     name: Symbol,
     depth: usize,
     src: SourceRef,
+    initialized: bool,
 }
 
 pub struct Compiler {
@@ -226,7 +227,7 @@ fn begin_scope(compiler: &mut Compiler) {
 fn end_scope(compiler: &mut Compiler) {
     compiler.scope_depth -= 1;
 
-    while compiler.local_count > 0 && compiler.locals[compiler.local_count].depth > compiler.scope_depth{
+    while compiler.local_count > 0 && compiler.locals[compiler.local_count-1].depth > compiler.scope_depth{
         let popped = compiler.locals.pop().unwrap();
         Pop{}.write(&mut compiler.current_chunk, popped.src );
         compiler.local_count -= 1;
@@ -268,13 +269,22 @@ fn add_local(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Result<()
     if compiler.locals.len() > 255 {
         return Err(CompilerError::new(format!("Hit maximum of 255 local variables in scope"), compiler.parser.previous.src.clone()));
     }
-    compiler.locals.push(Local { name, depth: compiler.scope_depth, src});
+    compiler.locals.push(Local { name, depth: compiler.scope_depth, src, initialized: false});
     compiler.local_count += 1;
     Ok(())
 }
 
+fn mark_initialized(compiler: &mut Compiler) -> Result<(), CompilerError> {
+    let last = compiler.locals.last_mut().unwrap();
+    last.depth = compiler.scope_depth;
+    last.initialized = true;
+    Ok(())
+}
+
 fn define_variable(compiler: &mut Compiler, global: DefGlobal) -> Result<(), CompilerError> {
-    if compiler.scope_depth > 0 {} else {
+    if compiler.scope_depth > 0 {
+        mark_initialized(compiler);
+    } else {
         global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone())
     }
     Ok(())
@@ -470,8 +480,13 @@ enum Resolution {
     Global,
 }
 fn resolve_local(compiler: &mut Compiler, sym: &Symbol) -> Resolution {
-    for (i, local) in compiler.locals.iter().rev().enumerate() {
+    // let mut uninited = 0;
+    for (i, local) in compiler.locals.iter().enumerate().rev() {
+        // if local.initialized == false {
+        //     uninited += 1;
+        // }
         if local.name == *sym {
+            // return Resolution::Local((i-uninited) as u8)
             return Resolution::Local(i as u8)
         }
     }

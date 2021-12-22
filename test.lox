@@ -1,11 +1,6 @@
-var breakfast = "beignets";
-var beverage = "cafe au lait";
-breakfast = "beignets with " + beverage;
-print breakfast;
-var a = "aaa";
-var b = "bbb";
-var c = "aaa";
-print a == c;
-print a == b;
-a = "bbb";
-print a == b;
+{
+var a = 2;
+print a;
+a = a + 1;
+print a;
+}

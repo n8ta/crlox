@@ -99,9 +99,10 @@ impl<'a> VM<'a> {
         }
     }
 
-    fn peek_at(&self, dist: u8) -> Result<Value, InterpError> {
-        match self.stack.get(self.stack.len() - 1 - (dist as usize)) {
-            None => Err(InterpError::compile(None, format!("Tried to peek at dist {} in the stack but the stack has length {}", dist, self.stack.len()))),
+    fn peek_at(&self, idx: u8) -> Result<Value, InterpError> {
+        // println!("Peeking at {}, len: {}", dist, self.stack.len());
+        match self.stack.get(idx as usize) {
+            None => Err(InterpError::compile(None, format!("Tried to peek at index {} in the stack but the stack has length {}", idx, self.stack.len()))),
             Some(v) => Ok(v.clone())
         }
     }
@@ -117,8 +118,9 @@ impl<'a> VM<'a> {
 
     fn run(&mut self) -> Result<Value, InterpError> {
         loop {
+            self.chunk.disassemble_op(&self.chunk.code()[self.ip], self.ip+1);
             let inst = self.read_byte()?;
-            println!("[{}] begin ({})", self.ip, inst);
+            println!("\tstack: {:?}", self.stack);
             let len = match inst {
                 Ret::CODE => {
                     let (_len, _ret) = Ret::decode(self.code, self.ip + 1);
@@ -332,14 +334,15 @@ impl<'a> VM<'a> {
                 }
                 GetLocal::CODE => {
                     let (len, get_local) = GetLocal::decode(self.code, self.ip + 1);
-                    let popped = self.peek_at(get_local.idx)?;
-                    self.push(popped);
+                    let peeked = self.peek_at(get_local.idx)?;
+                    self.push(peeked);
                     len
                 }
                 SetLocal::CODE => {
                     let (len, set_local) = SetLocal::decode(self.code, self.ip + 1);
                     let stack_len = self.stack.len();
-                    self.stack[stack_len-1-(set_local.idx as usize)] = self.peek().clone();
+                    println!("Setting local to {}", self.peek().clone());
+                    self.stack[set_local.idx as usize] = self.peek().clone();
                     len
                 }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))

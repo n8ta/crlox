@@ -40,7 +40,7 @@ impl Chunk {
     pub fn get_source(&self, code_idx: usize) -> Option<&SourceRef> {
         self.sources.get(code_idx)
     }
-    fn disassemble_op(&self, byte: &u8, idx: usize) -> usize {
+    pub fn disassemble_op(&self, byte: &u8, idx: usize) -> usize {
         match *byte {
             Const::CODE => {
                 let const_idx = self.code[idx] as usize;
