@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
-use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal, GetLocal, SetLocal};
+use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal, GetLocal, SetLocal, RelJumpIfFalse, RelJump};
 use crate::value::Value;
 use crate::ops::OpTrait;
 use crate::{Chunk, SourceRef, Symbol, Symbolizer};
@@ -129,10 +129,10 @@ impl<'a> VM<'a> {
                     return Ok(Value::Num(1.0));
                 }
                 Const::CODE => {
-                    let (_len, con) = Const::decode(self.code, self.ip + 1);
+                    let (len, con) = Const::decode(self.code, self.ip + 1);
                     let value: Value = self.consts.get(con.idx as usize).expect("Compiler error").clone();
                     self.push(value);
-                    Const::SIZE - 1
+                    self.ip += 1 + len;
                 }
                 Negate::CODE => {
                     let popped = self.pop()?;
@@ -144,7 +144,7 @@ impl<'a> VM<'a> {
                             format!("Tried to negate (-) a {}. You can only negate numbers.", popped.tname()),
                         ));
                     }
-                    0
+                    self.ip += 1;
                 }
                 Add::CODE => {
                     let b = self.pop()?;
@@ -159,7 +159,7 @@ impl<'a> VM<'a> {
                                                              format!("Cannot add a {} and a {}", a.tname(), b.tname())))
                     };
                     self.push(res);
-                    0
+                    self.ip += 1;
                 }
                 Sub::CODE => {
                     let a = self.pop()?;
@@ -170,7 +170,7 @@ impl<'a> VM<'a> {
                                                              format!("Cannot subtract a {} and a {}", a.tname(), b.tname())))
                     };
                     self.push(res);
-                    0
+                    self.ip += 1;
                 }
                 Mult::CODE => {
                     let a = self.pop()?;
@@ -181,7 +181,7 @@ impl<'a> VM<'a> {
                                                              format!("Cannot multiply a {} and a {}", a.tname(), b.tname())))
                     };
                     self.push(res);
-                    0
+                    self.ip += 1;
                 }
                 Div::CODE => {
                     let (len, _op) = Div::decode(self.code, self.ip + 1);
@@ -193,24 +193,24 @@ impl<'a> VM<'a> {
                                                              format!("Cannot divide a {} and a {}", a.tname(), b.tname())))
                     };
                     self.push(res);
-                    len
+                    self.ip += 1 + len;
                 }
                 True::CODE => {
                     self.push(Value::Bool(true));
-                    0
+                    self.ip += 1;
                 }
                 False::CODE => {
                     self.push(Value::Bool(false));
-                    0
+                    self.ip += 1;
                 }
                 Nil::CODE => {
                     self.push(Value::Nil);
-                    0
+                    self.ip += 1;
                 }
                 Not::CODE => {
                     let truthy = self.pop()?.truthy();
                     self.push(Value::Bool(!truthy));
-                    0
+                    self.ip += 1;
                 }
                 EqualEqual::CODE => {
                     let a = self.pop()?;
@@ -227,13 +227,13 @@ impl<'a> VM<'a> {
                                 format!("Cannot compare a {} and a {}", a.tname(), b.tname()),
                             ))
                         }));
-                    0
+                    self.ip += 1;
                 }
                 NotEqual::CODE => {
                     let a = self.pop()?;
                     let b = self.pop()?;
                     self.push(Value::Bool(a != b));
-                    0
+                    self.ip += 1;
                 }
                 Greater::CODE => {
                     let a = self.pop()?;
@@ -243,7 +243,7 @@ impl<'a> VM<'a> {
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
                                                              format!("Cannot compare {} and {} with the > op", a.tname(), b.tname())))
                     }
-                    0
+                    self.ip += 1;
                 }
                 GreaterOrEq::CODE => {
                     let a = self.pop()?;
@@ -253,7 +253,7 @@ impl<'a> VM<'a> {
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
                                                              format!("Cannot compare {} and {} with the >= operation", a.tname(), b.tname())))
                     }
-                    0
+                    self.ip += 1;
                 }
                 Less::CODE => {
                     let a = self.pop()?;
@@ -263,7 +263,7 @@ impl<'a> VM<'a> {
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
                                                              format!("Cannot compare {} and {} with the < operation", a.tname(), b.tname())))
                     }
-                    0
+                    self.ip += 1;
                 }
                 LessOrEq::CODE => {
                     let a = self.pop()?;
@@ -273,16 +273,16 @@ impl<'a> VM<'a> {
                         _ => return Err(InterpError::runtime(Some(self.chunk.get_source(self.ip).unwrap().clone()),
                                                              format!("Cannot compare {} and {} with the <= operation", a.tname(), b.tname())))
                     }
-                    0
+                    self.ip += 1;
                 }
                 Print::CODE => {
                     let value = self.pop()?;
                     println!("PRINT {}", value);
-                    0
+                    self.ip += 1;
                 }
                 Pop::CODE => {
                     self.pop()?;
-                    0
+                    self.ip += 1;
                 }
                 DefGlobal::CODE => {
                     let (len, def_global) = DefGlobal::decode(self.code, self.ip + 1);
@@ -294,7 +294,7 @@ impl<'a> VM<'a> {
                     } else {
                         panic!("Compiler error, non-string constant passed to DefGlobal");
                     }
-                    len
+                    self.ip = 1 + len;
                 }
                 GetGlobal::CODE => {
                     let (len, get_global) = GetGlobal::decode(self.code, self.ip + 1);
@@ -313,7 +313,7 @@ impl<'a> VM<'a> {
                     } else {
                         panic!("Compiler error, non-string constant passed to GetGlobal");
                     }
-                    len
+                    self.ip = 1 + len;
                 }
                 SetGlobal::CODE => {
                     let (len, set_global) = SetGlobal::decode(self.code, self.ip + 1);
@@ -330,20 +330,40 @@ impl<'a> VM<'a> {
                     } else {
                         panic!("Compiler error, non-string constant passed to GetGlobal");
                     }
-                    len
+                    self.ip = 1 + len;
                 }
                 GetLocal::CODE => {
                     let (len, get_local) = GetLocal::decode(self.code, self.ip + 1);
                     let peeked = self.peek_at(get_local.idx)?;
                     self.push(peeked);
-                    len
+                    self.ip = 1 + len;
                 }
                 SetLocal::CODE => {
                     let (len, set_local) = SetLocal::decode(self.code, self.ip + 1);
                     let stack_len = self.stack.len();
                     println!("Setting local to {}", self.peek().clone());
                     self.stack[set_local.idx as usize] = self.peek().clone();
-                    len
+                    self.ip = 1 + len;
+                }
+                RelJumpIfFalse::CODE => {
+                    let (len, jump) = RelJumpIfFalse::decode(self.code, self.ip + 1);
+                    if !self.peek().truthy() {
+                        if jump.idx > 0 {
+                            self.ip = self.ip.saturating_add(jump.idx as usize)
+                        } else {
+                            self.ip = self.ip.saturating_sub(jump.idx as usize)
+                        }
+                    } else {
+                        self.ip += 1 + len;
+                    }
+                }
+                RelJump::CODE => {
+                    let (len, jump) = RelJump::decode(self.code, self.ip + 1);
+                    if jump.idx > 0 {
+                        self.ip += (jump.idx as usize);
+                    } else {
+                        self.ip -= (jump.idx.abs() as usize);
+                    }
                 }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))
             };
