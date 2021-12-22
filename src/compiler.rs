@@ -370,6 +370,8 @@ fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compiler
 fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     if matches(compiler, TType::PRINT.id()) {
         print_statement(compiler, can_assign)
+    } else if matches(compiler, TType::IF.id()) {
+        if_statement(compiler, can_assign)
     } else if matches(compiler, TType::LEFT_BRACE.id()) {
         begin_scope(compiler);
         block(compiler)?;
