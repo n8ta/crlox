@@ -8,7 +8,15 @@ pub struct Write {
 }
 
 impl Write {
-    pub fn new(start: usize, len: usize) -> Self { write { start, len }}
+    pub fn new(start: usize, len: usize) -> Self { Write { start, len }}
+}
+
+#[derive(Clone, Debug)]
+pub struct Chunk {
+    code: Vec<u8>,
+    sources: Vec<SourceRef>,
+    // Same len as code
+    constants: Vec<Value>,
 }
 
 impl Chunk {
