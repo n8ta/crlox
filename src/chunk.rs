@@ -2,12 +2,10 @@ use crate::ops::{OpTrait, Add, Const, Div, EqualEqual, False, Greater, GreaterOr
 use crate::SourceRef;
 use crate::value::Value;
 
-
 pub struct Write {
     pub start: usize,
     pub len: usize,
 }
-
 
 impl Chunk {
     pub fn len(&self) -> usize {
