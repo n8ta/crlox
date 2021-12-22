@@ -2,6 +2,12 @@ use crate::{Chunk, SourceRef};
 use crate::chunk::Write;
 use crate::source_ref::Source;
 
+
+
+pub trait OpJumpTrait {
+    fn overwrite(&self, chunk: &mut Chunk, write: &Write);
+}
+
 pub trait OpTrait {
     const CODE: u8;
     const SIZE: usize;
