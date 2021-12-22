@@ -1,4 +1,5 @@
 use crate::{Chunk, SourceRef};
+use crate::chunk::Write;
 use crate::source_ref::Source;
 
 pub trait OpTrait {
@@ -323,6 +324,70 @@ impl OpTrait for SetLocal {
 
 
 
+
+
+
+
+
+
+
+
+
+pub struct RelJumpIfFalse {
+    pub idx: i16,
+}
+
+impl OpTrait for RelJumpIfFalse {
+    const CODE: u8 = 24;
+    const SIZE: usize = 3;
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        let bytes = i16::to_be_bytes(self.idx);
+        code.add_bytes(&[Self::CODE, bytes[0], bytes[1]], src.clone())
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        let bytes = [code[idx], code[idx + 1]];
+        let idx = i16::from_be_bytes(bytes);
+        (2, RelJumpIfFalse { idx })
+    }
+}
+impl OpJumpTrait for RelJumpIfFalse {
+    fn overwrite(&self, chunk: &mut Chunk, write: &Write) {
+        let offset: i64 = (chunk.len() - write.start) as i64;
+        if offset > (i16::MAX as i64) || offset < (i16::MIN as i64) {
+            panic!("Jump too big")
+        }
+        let bytes = i16::to_be_bytes(offset as i16);
+        chunk.overwrite(write, &[Self::CODE, bytes[0], bytes[1]]);
+    }
+}
+
+pub struct RelJump {
+    pub idx: i16,
+}
+
+impl OpTrait for RelJump {
+    const CODE: u8 = 25;
+    const SIZE: usize = 3;
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        let bytes = i16::to_be_bytes(self.idx);
+        code.add_bytes(&[Self::CODE, bytes[0], bytes[1]], src.clone())
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        let bytes = [code[idx], code[idx + 1]];
+        let idx = i16::from_be_bytes(bytes);
+        (2, RelJump { idx })
+    }
+}
+impl OpJumpTrait for RelJump {
+    fn overwrite(&self, chunk: &mut Chunk, write: &Write) {
+        let offset: i64 = (chunk.len() - write.start) as i64;
+        if offset > (i16::MAX as i64) || offset < (i16::MIN as i64) {
+            panic!("Jump too big")
+        }
+        let bytes = i16::to_be_bytes(offset as i16);
+        chunk.overwrite(write, &[Self::CODE, bytes[0], bytes[1]]);
+    }
+}
 
 
 
