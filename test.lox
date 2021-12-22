@@ -2,7 +2,7 @@
 var a = 333;
  {
  if (a > 300) {
- a += 1;
+ a = a + 1;
  }
     var a = 2;
     print a;

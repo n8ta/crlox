@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
 use std::rc::Rc;
-use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal, RelJump, RelJumpIfFalse};
+use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Num, Scanner, STRING_TTYPE_ID, Token, TType, TTypeId};
 use crate::{Chunk, SourceRef, Symbol};
 use crate::chunk::Write;
@@ -290,7 +290,7 @@ fn define_variable(compiler: &mut Compiler, global: DefGlobal) -> Result<(), Com
     if compiler.scope_depth > 0 {
         mark_initialized(compiler);
     } else {
-        global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone())
+        global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
     }
     Ok(())
 }
@@ -420,7 +420,7 @@ fn unary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError
         TType::MINUS => Negate {}.write(&mut compiler.current_chunk, typ.src),
         TType::BANG => Not {}.write(&mut compiler.current_chunk, typ.src),
         _ => panic!("unreachable"),
-    }
+    };
     Ok(())
 }
 
@@ -502,7 +502,7 @@ fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerErro
         TType::GREATER => Greater {}.write(&mut compiler.current_chunk, typ.src),
         TType::GREATER_EQUAL => GreaterOrEq {}.write(&mut compiler.current_chunk, typ.src),
         _ => panic!("bad typ"),
-    }
+    };
     Ok(())
 }
 
@@ -524,7 +524,7 @@ fn literal(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerErr
         TType::FALSE => False {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
         TType::NIL => Nil {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
         _ => panic!("not a literal!"),
-    }
+    };
     Ok(())
 }
 
