@@ -1,4 +1,4 @@
-use crate::ops::{OpTrait, Add, Const, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, SetGlobal, GetGlobal, DefGlobal, GetLocal, SetLocal};
+use crate::ops::{OpTrait, Add, Const, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, SetGlobal, GetGlobal, DefGlobal, GetLocal, SetLocal, RelJump, RelJumpIfFalse};
 use crate::SourceRef;
 use crate::value::Value;
 
@@ -175,6 +175,17 @@ impl Chunk {
                 println!("{} SetLocal[{}]", idx-1, op.idx);
                 len + 1
             }
+            RelJump::CODE => {
+                let (len, op) = RelJump::decode(&self.code, idx);
+                println!("{} RelJump[{}]", idx-1, op.idx);
+                len + 1
+            }
+            RelJumpIfFalse::CODE => {
+                let (len, op) = RelJumpIfFalse::decode(&self.code, idx);
+                println!("{} RelJumpIfFalse[{}]", idx-1, op.idx);
+                len + 1
+            }
+
             _ => panic!("Bad op code {}", byte)
         }
     }

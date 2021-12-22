@@ -121,7 +121,7 @@ impl<'a> VM<'a> {
             self.chunk.disassemble_op(&self.chunk.code()[self.ip], self.ip+1);
             let inst = self.read_byte()?;
             println!("\tstack: {:?}", self.stack);
-            let len = match inst {
+            match inst {
                 Ret::CODE => {
                     let (_len, _ret) = Ret::decode(self.code, self.ip + 1);
                     // let popped = self.pop()?;
@@ -358,7 +358,7 @@ impl<'a> VM<'a> {
                     }
                 }
                 RelJump::CODE => {
-                    let (len, jump) = RelJump::decode(self.code, self.ip + 1);
+                    let (_, jump) = RelJump::decode(self.code, self.ip + 1);
                     if jump.idx > 0 {
                         self.ip += (jump.idx as usize);
                     } else {
@@ -367,7 +367,6 @@ impl<'a> VM<'a> {
                 }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))
             };
-            self.ip += 1 + len;
         }
     }
 }
