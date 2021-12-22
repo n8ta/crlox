@@ -5,6 +5,7 @@ use std::rc::Rc;
 use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Num, Scanner, STRING_TTYPE_ID, Token, TType, TTypeId};
 use crate::{Chunk, SourceRef, Symbol};
+use crate::chunk::Write;
 use crate::scanner::TType::PRINT;
 use crate::symbolizer::Symbolizer;
 use crate::value::{Value};
@@ -431,6 +432,56 @@ fn grouping(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerErr
     expression(compiler, can_assign)?;
     consume(compiler, TType::RIGHT_PAREN.id(), "Expected a ')' at the end of a grouping")
 }
+
+
+// Expression
+// FalseJump :IfNotJump
+// Stmt: if-body
+// :IfNotJump
+// rest
+
+// Expression
+// FalseJump :IfNotJump
+// Stmt: if-body
+// Jump :IfDoneJump
+// :IfNotJump
+// Stmt: else-body
+// :IfDoneJump
+// ...
+
+fn if_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    consume(compiler, TType::LEFT_PAREN.id(), "Expected '(' after if.")?;
+    expression(compiler, can_assign)?;
+    consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after 'if (expression'")?;
+    let mut if_jump = RelJumpIfFalse { idx: -1 };
+
+    let if_jump_write: Write = if_jump.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+
+    statement(compiler, can_assign)?;
+
+    if matches(compiler, TType::ELSE.id()) {
+        let mut if_done_jump = RelJump { idx: -1 };
+        let if_done_jump_write = if_done_jump.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+        if_jump.overwrite(&mut compiler.current_chunk, &if_jump_write);
+        statement(compiler, can_assign);
+        if_done_jump.overwrite(&mut compiler.current_chunk, &if_done_jump_write);
+    } else {
+        if_jump.overwrite(&mut compiler.current_chunk, &if_jump_write);
+    }
+
+
+    // if matches(compiler, TType::ELSE.id()) {
+    //     let offset: i64 = (compiler.current_chunk.len() - jump_start.start) as i64;
+    //     let else_jump = RelJump{idx: -1}.write(&mut compiler.current_chunk, compiler.parser.src.clone());
+    //
+    //     let else_jump_write: Write = jump.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    //
+    // }
+
+
+    Ok(())
+}
+
 
 fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     let typ = compiler.parser.previous.clone();
