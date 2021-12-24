@@ -16,6 +16,7 @@ mod scanner;
 mod compiler;
 mod trie;
 mod symbolizer;
+mod e2e_tests;
 
 #[repr(u8)]
 enum Test {
@@ -32,7 +33,6 @@ fn main() {
         exit(-1);
     };
 
-    println!("Opening {}", path);
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(err) => {
@@ -58,12 +58,11 @@ fn main() {
         },
     };
 
-    chunk.disassemble();
+    // chunk.disassemble();
 
-    println!("chunk: {:?}", &chunk);
     let res = VM::interpret(&chunk, symbolizer.clone());
     match res {
-        Ok(r) => println!("success: {}", r),
         Err(r) => eprintln!("{}", r),
+        _ => {},
     }
 }

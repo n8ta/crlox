@@ -233,7 +233,6 @@ pub struct Scanner {
 
 impl Scanner {
     pub fn new(src: String, symbolizer: Symbolizer) -> Scanner {
-        println!("Scanner src: {}", &src);
         let mut keywords: Trie<u8, TType> = Trie::new();
         {
             keywords.insert("AND".as_bytes(), TType::AND);

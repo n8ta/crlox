@@ -1,0 +1,12 @@
+class Test {
+    printMe(name) {
+        print("I cant do that " + name);
+    }
+}
+
+var x = Test();
+x.a = 1;
+x.b = x.a + 100;
+print x.a;
+print x.b;
+x.printMe("Dave");

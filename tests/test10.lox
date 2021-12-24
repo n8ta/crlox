@@ -1,0 +1,16 @@
+fun retval() {
+    return 5;
+}
+
+fun retval2(a) {
+    5 + a;
+}
+
+fun retval3(a) {
+    return 5 + a;
+}
+
+
+print retval();
+print retval2(1);
+print retval3(1);

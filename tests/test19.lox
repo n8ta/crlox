@@ -1,0 +1,20 @@
+class Super {
+    supermethod() {
+        this.a = "a";
+        print(this.name + " " + this.a);
+    }
+}
+class Test < Super {
+    init() {
+        this.name = "TestName";
+    }
+    printMe(name) {
+        this.supermethod();
+    }
+    printMe2() {
+        print(this.a);
+    }
+}
+var t = Test();
+t.printMe("Nate");
+t.printMe2();

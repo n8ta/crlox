@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
-use std::rc::Rc;
 use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Num, Scanner, STRING_TTYPE_ID, Token, TType, TTypeId};
 use crate::{Chunk, SourceRef, Symbol};
 use crate::chunk::Write;
-use crate::scanner::TType::PRINT;
 use crate::symbolizer::Symbolizer;
 use crate::value::{Value};
 
@@ -91,6 +89,12 @@ pub struct Compiler {
 }
 
 impl Compiler {
+    pub fn prev_source(&self) -> &SourceRef {
+        &self.parser.previous.src
+    }
+    pub fn current_chunk(&mut self) -> &mut Chunk {
+        &mut self.current_chunk
+    }
     pub fn compile(src: String, symbolizer: Symbolizer) -> Result<Chunk, CompilerError> {
         let mut compiler = Compiler::new(src, symbolizer);
         compiler.run()?;
@@ -125,7 +129,6 @@ impl Compiler {
             rules.insert(IDENTIFIER_TTYPE_ID, Rule::new(Some(variable), None, Precedence::NONE));
             rules.insert(STRING_TTYPE_ID, Rule::new(Some(string), None, Precedence::NONE));
             rules.insert(TType::NUMBER(Num { num: 0.0 }).id(), Rule::new(Some(number), None, Precedence::NONE));
-            rules.insert(TType::AND.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::CLASS.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::ELSE.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::FALSE.id(), Rule::new(Some(literal), None, Precedence::NONE));
@@ -133,7 +136,8 @@ impl Compiler {
             rules.insert(TType::FUN.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::IF.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::NIL.id(), Rule::new(Some(literal), None, Precedence::NONE));
-            rules.insert(TType::OR.id(), Rule::new(None, None, Precedence::NONE));
+            rules.insert(TType::OR.id(), Rule::new(None, Some(or_), Precedence::NONE));
+            rules.insert(TType::AND.id(), Rule::new(None, Some(and_), Precedence::NONE));
             rules.insert(TType::PRINT.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::RETURN.id(), Rule::new(None, None, Precedence::NONE));
             rules.insert(TType::SUPER.id(), Rule::new(None, None, Precedence::NONE));
@@ -228,13 +232,9 @@ fn begin_scope(compiler: &mut Compiler) {
 
 fn end_scope(compiler: &mut Compiler) {
     compiler.scope_depth -= 1;
-    // println!("Local count {} Scope depth {}", compiler.local_count, compiler.scope_depth);
-    // println!("Last Local {:?}", &compiler.locals.last().unwrap());
-    // println!("bool1: {}", compiler.local_count > 0);
-    // println!("bool2: {}", compiler.locals[compiler.local_count-1].depth > compiler.scope_depth);
     while compiler.local_count > 0 && compiler.locals.last().unwrap().depth > compiler.scope_depth{
         let popped = compiler.locals.pop().unwrap();
-        Pop{}.write(&mut compiler.current_chunk, popped.src );
+        Pop{}.emit(compiler);
         compiler.local_count -= 1;
     }
 }
@@ -290,7 +290,7 @@ fn define_variable(compiler: &mut Compiler, global: DefGlobal) -> Result<(), Com
     if compiler.scope_depth > 0 {
         mark_initialized(compiler);
     } else {
-        global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+        global.emit(compiler);
     }
     Ok(())
 }
@@ -346,12 +346,10 @@ fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
     if matches(compiler, TType::EQUAL.id()) {
         expression(compiler, can_assign)?;
     } else {
-        Nil {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+        Nil {}.emit(compiler);
     }
     consume(compiler, TType::SEMICOLON.id(), "Expect ';' after variable declaration")?;
     define_variable(compiler,DefGlobal { idx: const_ref.idx });
-    // let def_global =
-    // def_global.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
     Ok(())
 }
 
@@ -372,6 +370,8 @@ fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerEr
         print_statement(compiler, can_assign)
     } else if matches(compiler, TType::IF.id()) {
         if_statement(compiler, can_assign)
+    } else if matches(compiler, TType::WHILE.id()) {
+        while_statement(compiler, can_assign)
     } else if matches(compiler, TType::LEFT_BRACE.id()) {
         begin_scope(compiler);
         block(compiler)?;
@@ -382,17 +382,35 @@ fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerEr
     }
 }
 
+fn and_(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    let jf = RelJumpIfFalse { idx: -1};
+    Pop{}.emit(compiler);
+    Ok(())
+}
+fn or_(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    let else_jump = RelJumpIfFalse{idx: -1};
+    let end_jump = RelJump{idx: -1};
+    let else_write = else_jump.emit(compiler);
+    let end_write = end_jump.emit(compiler);
+    else_jump.overwrite(&mut compiler.current_chunk, &else_write);
+    Pop{}.emit(compiler);
+    parse_precedence(compiler, Precedence::OR)?;
+    end_jump.overwrite(&mut compiler.current_chunk, &end_write);
+    Ok(())
+}
+
+
 fn expression_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     expression(compiler, can_assign)?;
     consume(compiler, TType::SEMICOLON.id(), "Expected ';' after expression.")?;
-    Pop {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    Pop {}.emit(compiler);
     Ok(())
 }
 
 fn print_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     expression(compiler, can_assign)?;
     consume(compiler, TType::SEMICOLON.id(), "Expect ';' after value.")?;
-    Print {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    Print {}.emit(compiler);
     Ok(())
 }
 
@@ -457,33 +475,44 @@ fn if_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compile
     consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after 'if (expression'")?;
     let mut if_jump = RelJumpIfFalse { idx: -1 };
 
-    let if_jump_write: Write = if_jump.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+    let if_jump_write: Write = if_jump.emit(compiler);
 
     statement(compiler, can_assign)?;
 
     if matches(compiler, TType::ELSE.id()) {
         let mut if_done_jump = RelJump { idx: -1 };
-        let if_done_jump_write = if_done_jump.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
+        let if_done_jump_write = if_done_jump.emit(compiler);
         if_jump.overwrite(&mut compiler.current_chunk, &if_jump_write);
-        statement(compiler, can_assign);
+        statement(compiler, can_assign)?;
         if_done_jump.overwrite(&mut compiler.current_chunk, &if_done_jump_write);
     } else {
         if_jump.overwrite(&mut compiler.current_chunk, &if_jump_write);
     }
-
-
-    // if matches(compiler, TType::ELSE.id()) {
-    //     let offset: i64 = (compiler.current_chunk.len() - jump_start.start) as i64;
-    //     let else_jump = RelJump{idx: -1}.write(&mut compiler.current_chunk, compiler.parser.src.clone());
-    //
-    //     let else_jump_write: Write = jump.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone());
-    //
-    // }
-
-
     Ok(())
 }
 
+
+// :start
+// expression
+// jump if false :done
+// ...body...
+// jump :start
+// :done
+fn while_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    let loop_start = compiler.current_chunk.len() as i16;
+    consume(compiler, TType::LEFT_PAREN.id(), "Expected '(' after while.")?;
+    expression(compiler, can_assign)?;
+    consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after while expression.")?;
+    let mut exit_jump = RelJumpIfFalse { idx: -1 }; // jump to :done if expression is false
+    let exit_jump_write = exit_jump.emit(compiler);
+    Pop{}.emit(compiler); // pop while loop expression
+    statement(compiler, can_assign)?; // body
+    let jump_to_start = RelJump { idx: -((compiler.current_chunk.len() as i16) - loop_start) };
+    jump_to_start.emit(compiler); // jump to :start
+    exit_jump.overwrite(&mut compiler.current_chunk, &exit_jump_write); // :done
+    Pop{}.emit(compiler); // pop while loop expression
+    Ok(())
+}
 
 fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     let typ = compiler.parser.previous.clone();
@@ -520,9 +549,9 @@ fn string(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerErro
 
 fn literal(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     match compiler.parser.previous.kind {
-        TType::TRUE => True {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
-        TType::FALSE => False {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
-        TType::NIL => Nil {}.write(&mut compiler.current_chunk, compiler.parser.previous.src.clone()),
+        TType::TRUE => True {}.emit(compiler),
+        TType::FALSE => False {}.emit(compiler),
+        TType::NIL => Nil {}.emit(compiler),
         _ => panic!("not a literal!"),
     };
     Ok(())
@@ -537,13 +566,8 @@ enum Resolution {
     Global,
 }
 fn resolve_local(compiler: &mut Compiler, sym: &Symbol) -> Resolution {
-    // let mut uninited = 0;
     for (i, local) in compiler.locals.iter().enumerate().rev() {
-        // if local.initialized == false {
-        //     uninited += 1;
-        // }
         if local.name == *sym {
-            // return Resolution::Local((i-uninited) as u8)
             return Resolution::Local(i as u8)
         }
     }

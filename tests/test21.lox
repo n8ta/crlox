@@ -1,0 +1,28 @@
+class A {
+    find(bb) {
+        print("hello!" + bb + this.b);
+    }
+}
+class Test < A {
+   init(a, b, c) {
+       this.a = a;
+       this.b = b;
+       this.c = c;
+   }
+    find() {
+      print(this.b);
+        if (this.a == nil) {
+            print("nil");
+        } else {
+           this.a.find();
+        }
+
+        print("calling super");
+        super.find(" ");
+    }
+}
+
+var a = Test(nil, "i am a", nil);
+var c = Test(nil, "i am c", nil);
+var t = Test(a, "i am t", c);
+t.find();

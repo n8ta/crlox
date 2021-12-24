@@ -1,4 +1,4 @@
-use crate::{Chunk, SourceRef};
+use crate::{Chunk, Compiler, SourceRef};
 use crate::chunk::Write;
 
 
@@ -10,6 +10,10 @@ pub trait OpTrait {
     const SIZE: usize;
     fn write(&self, code: &mut Chunk, src: SourceRef) -> Write;
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self);
+    fn emit(&self, compiler: &mut Compiler) -> Write {
+        let prev = compiler.prev_source().clone();
+        self.write(compiler.current_chunk(), prev)
+    }
 }
 
 #[derive(Debug)]

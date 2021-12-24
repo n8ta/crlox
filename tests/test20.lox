@@ -1,0 +1,18 @@
+class Doughnut {
+  cook() {
+    print "Fry until golden brown." + this.a;
+    print this.b;
+  }
+}
+
+class BostonCream < Doughnut {
+  cook() {
+     this.b = "set in child";
+     super.cook();
+     print "Pipe full of custard and coat with chocolate.";
+  }
+}
+
+var b = BostonCream();
+b.a = "a";
+b.cook();

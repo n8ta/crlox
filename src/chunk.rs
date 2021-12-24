@@ -8,7 +8,7 @@ pub struct Write {
 }
 
 impl Write {
-    pub fn new(start: usize, len: usize) -> Self { Write { start, len }}
+    pub fn new(start: usize, len: usize) -> Self { Write { start, len } }
 }
 
 #[derive(Clone, Debug)]
@@ -67,122 +67,130 @@ impl Chunk {
             }
         }
     }
-    pub fn get_source(&self, code_idx: usize) -> Option<&SourceRef> {
-        self.sources.get(code_idx)
+    // pub fn get_source(&self, code_idx: usize) -> Option<&SourceRef> {
+    // self.sources.get(code_idx)
+    // }
+    pub fn get_source(&self, ptr: *const u8) -> Option<&SourceRef> {
+        let start: *const u8 = &self.code[0];
+        let offset = unsafe {
+            ptr.offset_from(start)
+        };
+        self.sources.get(offset as usize)
     }
+
     pub fn disassemble_op(&self, byte: &u8, idx: usize) -> usize {
         match *byte {
             Const::CODE => {
                 let const_idx = self.code[idx] as usize;
                 let const_val = self.constants[const_idx].clone();
-                println!("{} Const[{}]{}", idx-1, const_idx, const_val);
+                println!("{} [{}] Const[{}]{}", idx - 1, Const::CODE, const_idx, const_val);
                 Const::SIZE
             }
             Ret::CODE => {
-                println!("{} Return", idx-1);
+                println!("{} [{}] Return", idx - 1, Ret::CODE);
                 Ret::SIZE
             }
             Negate::CODE => {
-                println!("{} Negate", idx-1);
+                println!("{} [{}] Negate", idx - 1, Negate::CODE);
                 Negate::SIZE
             }
             Add::CODE => {
-                println!("{} Add", idx-1);
+                println!("{} [{}] Add", idx - 1, Add::CODE);
                 Add::SIZE
             }
             Sub::CODE => {
-                println!("{} Sub", idx-1);
+                println!("{} [{}] Sub", idx - 1, Sub::CODE);
                 Sub::SIZE
             }
             Mult::CODE => {
-                println!("{} Mult", idx-1);
+                println!("{} [{}] Mult", idx - 1, Mult::CODE);
                 Mult::SIZE
             }
             Div::CODE => {
-                println!("{} Div", idx-1);
+                println!("{} [{}] Div", idx - 1, Div::CODE);
                 Div::SIZE
             }
             True::CODE => {
-                println!("{} True", idx-1);
+                println!("{} [{}] True", idx - 1, True::CODE);
                 True::SIZE
             }
             False::CODE => {
-                println!("{} False", idx-1);
+                println!("{} [{}] False", idx - 1, False::CODE);
                 False::SIZE
             }
             Nil::CODE => {
-                println!("{} Nil", idx-1);
+                println!("{} [{}] Nil", idx - 1, Nil::CODE);
                 Nil::SIZE
             }
             Not::CODE => {
-                println!("{} Not", idx-1);
+                println!("{} [{}] Not", idx - 1, Not::CODE);
                 Not::SIZE
             }
             EqualEqual::CODE => {
-                println!("{} EqualEqual", idx-1);
+                println!("{} [{}] EqualEqual", idx - 1, EqualEqual::CODE);
                 EqualEqual::SIZE
             }
             NotEqual::CODE => {
-                println!("{} NotEqual", idx-1);
+                println!("{} [{}] NotEqual", idx - 1, NotEqual::CODE);
                 NotEqual::SIZE
             }
             Greater::CODE => {
-                println!("{} Greater", idx-1);
+                println!("{} [{}] Greater", idx - 1, Greater::CODE);
                 Greater::SIZE
             }
             Less::CODE => {
-                println!("{} Less", idx-1);
+                println!("{} [{}] Less", idx - 1, Less::CODE);
                 Less::SIZE
             }
             GreaterOrEq::CODE => {
-                println!("{} GreaterOrEq", idx-1);
+                println!("{} [{}] GreaterOrEq", idx - 1, GreaterOrEq::CODE);
                 GreaterOrEq::SIZE
             }
             LessOrEq::CODE => {
-                println!("{} LessOrEq", idx-1);
+                println!("{} [{}] LessOrEq", idx - 1, LessOrEq::CODE);
                 LessOrEq::SIZE
             }
             Print::CODE => {
-                println!("{} Print", idx-1);
+                println!("{} [{}] Print", idx - 1, Print::CODE);
                 Print::SIZE
             }
             Pop::CODE => {
-                println!("{} Pop", idx-1);
+                println!("{} [{}] Pop", idx - 1, Pop::CODE);
                 Pop::SIZE
             }
             DefGlobal::CODE => {
                 let (len, op) = DefGlobal::decode(&self.code, idx);
-                println!("{} DefGlobal[{}]=>{}", idx-1, op.idx, self.constants[op.idx as usize]);
+                println!("{} [{}] DefGlobal[{}]=>{}", idx - 1, DefGlobal::CODE, op.idx, self.constants[op.idx as usize]);
                 len + 1
             }
             GetGlobal::CODE => {
                 let (len, op) = GetGlobal::decode(&self.code, idx);
-                println!("{} GetGlobal[{}]=>{}", idx-1, op.idx, self.constants[op.idx as usize]);
+                println!("{} [{}] GetGlobal[{}]=>{}", idx - 1, GetGlobal::CODE, op.idx, self.constants[op.idx as usize]);
                 len + 1
             }
             SetGlobal::CODE => {
                 let (len, op) = SetGlobal::decode(&self.code, idx);
-                println!("{} SetGlobal[{}]=>{}", idx-1, op.idx, self.constants[op.idx as usize]);
+                println!("{} [{}] SetGlobal[{}]=>{}", idx - 1, SetGlobal::CODE, op.idx, self.constants[op.idx as usize]);
                 len + 1
             }
             GetLocal::CODE => {
                 let (len, op) = GetLocal::decode(&self.code, idx);
-                println!("{} GetLocal[{}]", idx-1, op.idx);
+                println!("{} [{}] GetLocal[{}]", idx - 1, GetLocal::CODE, op.idx);
                 len + 1
             }
             SetLocal::CODE => {
                 let (len, op) = SetLocal::decode(&self.code, idx);
-                println!("{} SetLocal[{}]", idx-1, op.idx);
+                println!("{} [{}] SetLocal[{}]", idx - 1, SetLocal::CODE, op.idx);
                 len + 1
             }
             RelJump::CODE => {
                 let (len, op) = RelJump::decode(&self.code, idx);
-                println!("{} RelJump[{}]", idx-1, op.idx);
+                println!("{} [{}] RelJump[{}]", idx - 1, RelJump::CODE, op.idx);
                 len + 1
             }
             RelJumpIfFalse::CODE => {
                 let (len, op) = RelJumpIfFalse::decode(&self.code, idx);
-                println!("{} RelJumpIfFalse[{}]", idx-1, op.idx);
+                println!("{} [{}] RelJumpIfFalse[{}]", idx - 1, RelJumpIfFalse::CODE, op.idx);
                 len + 1
             }
 

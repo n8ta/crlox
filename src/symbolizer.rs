@@ -92,11 +92,9 @@ impl Symbolizer {
         if let Some(existing) = set.get(&weakly_held) {
             let upgraded = existing.clone().upgrade();
             if let Some(existing_symbol) = upgraded {
-                println!("Return existing: {}", existing_symbol);
                 return existing_symbol.clone();
             }
         }
-        println!("Make a new {}", sym);
         set.insert(weakly_held);
         s
     }

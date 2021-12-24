@@ -1,0 +1,10 @@
+class Test {
+    printMe(name) {
+        print("I cant do that " + name + " I am " + this.field);
+    }
+}
+
+var t = Test();
+t.field = "nate";
+t.field2 = "nate2";
+t.printMe("Dave");

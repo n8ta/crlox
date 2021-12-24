@@ -1,0 +1,8 @@
+fun rec(num) {
+    if (num != 0) {
+        print num;
+        rec(num - 1);
+    }
+}
+
+rec(5);

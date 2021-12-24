@@ -1,0 +1,9 @@
+fun test() {
+    print 123;
+}
+test();
+
+fun test2(a, b, c) {
+    print a + b + c;
+}
+test2(1,2,3);
