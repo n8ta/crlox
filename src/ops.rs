@@ -12,7 +12,7 @@ pub trait OpTrait {
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self);
     fn emit(&self, compiler: &mut Compiler) -> Write {
         let prev = compiler.prev_source().clone();
-        self.write(compiler.current_chunk(), prev)
+        self.write(&mut compiler.current_chunk, prev)
     }
 }
 
@@ -374,17 +374,20 @@ impl OpJumpTrait for RelJump {
     }
 }
 
+pub struct Call {
+    pub arity: u8,
+}
 
-
-
-
-
-
-
-
-
-
-
+impl OpTrait for Call {
+    const CODE: u8 = 26;
+    const SIZE: usize = 2;
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE, self.arity], src.clone())
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        (1, Call { arity: code[idx] })
+    }
+}
 
 
 

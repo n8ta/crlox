@@ -1,4 +1,4 @@
-use crate::ops::{OpTrait, Add, Const, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, SetGlobal, GetGlobal, DefGlobal, GetLocal, SetLocal, RelJump, RelJumpIfFalse};
+use crate::ops::{OpTrait, Add, Const, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, SetGlobal, GetGlobal, DefGlobal, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call};
 use crate::SourceRef;
 use crate::value::Value;
 
@@ -13,18 +13,15 @@ impl Write {
 
 #[derive(Clone, Debug)]
 pub struct Chunk {
-    code: Vec<u8>,
-    sources: Vec<SourceRef>,
+    pub code: Vec<u8>,
+    pub sources: Vec<SourceRef>,
     // Same len as code
-    constants: Vec<Value>,
+    pub constants: Vec<Value>,
 }
 
 impl Chunk {
     pub fn len(&self) -> usize {
         self.code.len()
-    }
-    pub fn code(&self) -> &Vec<u8> {
-        &self.code
     }
     pub fn consts(&self) -> &Vec<Value> {
         &self.constants
@@ -67,15 +64,9 @@ impl Chunk {
             }
         }
     }
-    // pub fn get_source(&self, code_idx: usize) -> Option<&SourceRef> {
-    // self.sources.get(code_idx)
-    // }
-    pub fn get_source(&self, ptr: *const u8) -> Option<&SourceRef> {
-        let start: *const u8 = &self.code[0];
-        let offset = unsafe {
-            ptr.offset_from(start)
-        };
-        self.sources.get(offset as usize)
+
+    pub fn get_source(&self, code_idx: usize) -> Option<&SourceRef> {
+        self.sources.get(code_idx)
     }
 
     pub fn disassemble_op(&self, byte: &u8, idx: usize) -> usize {
@@ -191,6 +182,11 @@ impl Chunk {
             RelJumpIfFalse::CODE => {
                 let (len, op) = RelJumpIfFalse::decode(&self.code, idx);
                 println!("{} [{}] RelJumpIfFalse[{}]", idx - 1, RelJumpIfFalse::CODE, op.idx);
+                len + 1
+            }
+            Call::CODE => {
+                let (len, op) = Call::decode(&self.code, idx);
+                println!("{} [{}] Call[{}]", idx - 1, Call::CODE, op.arity);
                 len + 1
             }
 

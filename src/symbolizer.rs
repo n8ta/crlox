@@ -51,7 +51,7 @@ pub struct Symbolizer {
 
 #[derive(Clone, Debug, Hash, PartialOrd)]
 pub struct Symbol {
-    sym: Rc<String>,
+    pub sym: Rc<String>,
 }
 
 

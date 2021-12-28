@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use crate::func::Func;
 use crate::Symbol;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -6,7 +7,8 @@ pub enum Value {
     Num(f64),
     Bool(bool),
     Nil,
-    String(Symbol)
+    String(Symbol),
+    Func(Func)
 }
 
 // #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +38,7 @@ impl Value {
             Value::Bool(_) => "bool",
             Value::Nil => "nil",
             Value::String(_) => "string",
+            Value::Func(_) => "fn",
         }
     }
     pub fn truthy(&self) -> bool {
@@ -43,6 +46,7 @@ impl Value {
             Value::Num(_) => true,
             Value::Nil => false,
             Value::Bool(b) => *b,
+            Value::Func(_) => true,
             _ => true,
         }
     }
@@ -55,6 +59,7 @@ impl Display for Value {
             Value::Bool(b) => f.write_str(&format!("{}", b)),
             Value::Nil => f.write_str("nil"),
             Value::String(s) => f.write_str(&format!("{}", s)),
+            Value::Func(lfn) => f.write_str(&format!("fn[{}]<{}>", lfn.arity, lfn.name)),
         }
     }
 }

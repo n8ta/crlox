@@ -8,6 +8,7 @@ use crate::compiler::Compiler;
 use crate::symbolizer::{Symbol, Symbolizer};
 
 mod value;
+mod func;
 mod ops;
 mod source_ref;
 mod chunk;
@@ -18,11 +19,6 @@ mod trie;
 mod symbolizer;
 mod e2e_tests;
 
-#[repr(u8)]
-enum Test {
-    A,
-    B(String),
-}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -50,7 +46,7 @@ fn main() {
 
     let symbolizer = Symbolizer::new();
 
-    let chunk = match Compiler::compile(contents, symbolizer.clone()) {
+    let func = match Compiler::compile(contents, symbolizer.clone()) {
         Ok(c) => c,
         Err(err) => {
             eprintln!("{}", err);
@@ -58,9 +54,7 @@ fn main() {
         },
     };
 
-    // chunk.disassemble();
-
-    let res = VM::interpret(&chunk, symbolizer.clone());
+    let res = VM::interpret(func, symbolizer.clone());
     match res {
         Err(r) => eprintln!("{}", r),
         _ => {},
