@@ -54,6 +54,8 @@ fn main() {
         },
     };
 
+    func.chunk.disassemble();
+
     let res = VM::interpret(func, symbolizer.clone());
     match res {
         Err(r) => eprintln!("{}", r),

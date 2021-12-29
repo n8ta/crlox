@@ -263,6 +263,8 @@ impl Scanner {
             keywords.insert("true".as_bytes(), TType::TRUE);
             keywords.insert("FUN".as_bytes(), TType::FUN);
             keywords.insert("fun".as_bytes(), TType::FUN);
+            keywords.insert("RETURN".as_bytes(), TType::RETURN);
+            keywords.insert("return".as_bytes(), TType::RETURN);
 
 
         }

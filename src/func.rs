@@ -1,11 +1,18 @@
 use std::cell::RefCell;
+use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 use crate::{Chunk, Symbol};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Func {
     inner: Rc<FuncInner>,
+}
+
+impl Debug for Func {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("func<{}>", self.inner.name))
+    }
 }
 
 impl PartialEq for Func {

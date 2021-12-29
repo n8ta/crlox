@@ -79,7 +79,6 @@ struct Local {
 
 struct Scope {
     local_count: usize,
-    scope_depth: usize,
 }
 
 pub struct Compiler {
@@ -163,7 +162,7 @@ impl Compiler {
             },
             symbolizer,
             rules,
-            scopes: vec![Scope { local_count: 0, scope_depth: 0 }],
+            scopes: vec![],
         }
     }
 
@@ -227,15 +226,14 @@ fn matches(compiler: &mut Compiler, typ: TTypeId) -> bool {
 }
 
 fn begin_scope(compiler: &mut Compiler) {
-    compiler.scopes.last_mut().unwrap().scope_depth += 1;
-    compiler.scopes.last_mut().unwrap().local_count = 0;
+    compiler.scopes.push(Scope { local_count: 0 });
 }
 
 fn end_scope(compiler: &mut Compiler) {
+    let scope_depth = compiler.scopes.len() - 1;
     let scope = compiler.scopes.last_mut().unwrap();
-    scope.scope_depth -= 1;
     let mut pops = 0;
-    while scope.local_count > 0 && compiler.locals.last().unwrap().depth > scope.scope_depth {
+    while scope.local_count > 0 && compiler.locals.last().unwrap().depth > (scope_depth) {
         let popped = compiler.locals.pop().unwrap();
         pops += 1;
         scope.local_count -= 1;
@@ -280,13 +278,13 @@ fn add_local(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Result<()
     if compiler.locals.len() > 255 {
         return Err(CompilerError::new(format!("Hit maximum of 255 local variables in scope"), compiler.parser.previous.src.clone()));
     }
-    compiler.locals.push(Local { name, depth: compiler.scopes.last().unwrap().scope_depth, src, initialized: false });
+    compiler.locals.push(Local { name, depth: compiler.scopes.len() - 1, src, initialized: false });
     compiler.scopes.last_mut().unwrap().local_count += 1;
     Ok(())
 }
 
 fn mark_initialized(compiler: &mut Compiler) -> Result<(), CompilerError> {
-    let depth = compiler.scopes.last().unwrap().scope_depth;
+    let depth = compiler.scopes.len();
     if depth == 0 { return Ok(()); }
     let last = compiler.locals.last_mut().unwrap();
     last.depth = depth;
@@ -295,20 +293,20 @@ fn mark_initialized(compiler: &mut Compiler) -> Result<(), CompilerError> {
 }
 
 fn define_variable(compiler: &mut Compiler, global: DefGlobal) -> Result<(), CompilerError> {
-    if compiler.scopes.last().unwrap().scope_depth > 0 {
+    if compiler.scopes.len() > 0 {
         mark_initialized(compiler)?;
-    } else {
-        global.emit(compiler);
+        return Ok(());
     }
+    global.emit(compiler);
     Ok(())
 }
 
 fn declare_variable(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Result<(), CompilerError> {
-    if compiler.scopes.last().unwrap().scope_depth == 0 {
+    if compiler.scopes.len() == 0 {
         Ok(())
     } else {
         for local in compiler.locals.iter() {
-            if local.depth < compiler.scopes.last().unwrap().scope_depth {
+            if local.depth < compiler.scopes.len()  {
                 break;
             }
             if local.name == name {
@@ -324,7 +322,7 @@ fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<(Symbol, Con
     consume(compiler, IDENTIFIER_TTYPE_ID, message)?;
     if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind.clone() {
         declare_variable(compiler, str.clone(), compiler.parser.previous.src.clone())?;
-        if compiler.scopes.last().unwrap().scope_depth > 0 {
+        if compiler.scopes.len() > 0 {
             Ok((str.clone(), compiler.current_chunk.add_const(Value::String(str.clone()))))
         } else {
             Ok((str.clone(), identifier_constant(str.clone(), &mut compiler.current_chunk)?))
@@ -363,10 +361,14 @@ fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 
 
 fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<Const, CompilerError> {
+    consume(compiler, TType::LEFT_PAREN.id(), "Expected '(' after function name")?;
     let mut new_chunk = Chunk::new();
+    let mut locals = vec![];
     swap(&mut compiler.current_chunk, &mut new_chunk);
+    swap(&mut compiler.locals, &mut locals);
     begin_scope(compiler);
-    compiler.scopes.push(Scope { scope_depth: 0, local_count: 0 });
+    declare_variable(compiler, name.clone(), compiler.parser.previous.src.clone())?;
+    mark_initialized(compiler)?;
     let mut arity: usize = 0;
     if !(check(compiler, TType::RIGHT_PAREN.id())) {
         let mut first = true;
@@ -386,24 +388,28 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
     consume(compiler, TType::LEFT_BRACE.id(), "Expected '{' before function body")?;
     block(compiler)?;
 
+    end_scope(compiler);
+    let _ = compiler.scopes.pop();
+
     swap(&mut compiler.current_chunk, &mut new_chunk);
+    swap(&mut compiler.locals, &mut locals);
+
     let func_const = compiler.current_chunk.add_const(Value::Func(
         Func::new(name.clone(),
                   arity,
                   FuncType::Function,
                   new_chunk,
         )));
-    let _ = compiler.scopes.pop();
-    end_scope(compiler);
+
+
     Ok(func_const)
 }
 
 fn fun_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     let (sym, name_const) = parse_variable(compiler, "Expected to find an identifier after a function")?;
-    name_const.emit(compiler);
-    consume(compiler, TType::LEFT_PAREN.id(), "Expected '(' after function name")?;
     mark_initialized(compiler)?;
-    function(compiler,  sym,can_assign)?;
+    let func_const = function(compiler, sym, can_assign)?;
+    func_const.emit(compiler);
     define_variable(compiler, DefGlobal { idx: name_const.idx })?;
     Ok(())
 }
@@ -425,6 +431,8 @@ fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compiler
 fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     if matches(compiler, TType::PRINT.id()) {
         print_statement(compiler, can_assign)
+    } else if matches(compiler, TType::RETURN.id()) {
+        return_statement(compiler, can_assign)
     } else if matches(compiler, TType::IF.id()) {
         if_statement(compiler, can_assign)
     } else if matches(compiler, TType::WHILE.id()) {
@@ -462,6 +470,18 @@ fn expression_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(),
     expression(compiler, can_assign)?;
     consume(compiler, TType::SEMICOLON.id(), "Expected ';' after expression.")?;
     Pop {}.emit(compiler);
+    Ok(())
+}
+
+fn return_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    if matches(compiler, TType::SEMICOLON.id()) {
+        Nil {}.emit(compiler);
+        Ret {}.emit(compiler);
+    } else {
+        expression(compiler, can_assign)?;
+        consume(compiler, TType::SEMICOLON.id(), "Expected ';' after return value.")?;
+        Ret {}.emit(compiler);
+    }
     Ok(())
 }
 
@@ -652,6 +672,7 @@ enum Resolution {
 }
 
 fn resolve_local(compiler: &mut Compiler, sym: &Symbol) -> Resolution {
+
     for (i, local) in compiler.locals.iter().enumerate().rev() {
         if local.name == *sym {
             return Resolution::Local(i as u8);

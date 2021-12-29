@@ -189,7 +189,6 @@ impl Chunk {
                 println!("{} [{}] Call[{}]", idx - 1, Call::CODE, op.arity);
                 len + 1
             }
-
             _ => panic!("Bad op code {}", byte)
         }
     }

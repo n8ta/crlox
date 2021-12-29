@@ -58,7 +58,7 @@ impl Display for Value {
             Value::Num(n) => f.write_str(&format!("{}", n)),
             Value::Bool(b) => f.write_str(&format!("{}", b)),
             Value::Nil => f.write_str("nil"),
-            Value::String(s) => f.write_str(&format!("{}", s)),
+            Value::String(s) => f.write_str(&format!("str'{}'", s)),
             Value::Func(lfn) => f.write_str(&format!("fn[{}]<{}>", lfn.arity, lfn.name)),
         }
     }
