@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use crate::func::Func;
+use crate::native_func::NativeFunc;
 use crate::Symbol;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -8,28 +9,9 @@ pub enum Value {
     Bool(bool),
     Nil,
     String(Symbol),
-    Func(Func)
+    Func(Func),
+    Native(NativeFunc),
 }
-
-// #[derive(Clone, Debug, PartialEq)]
-// pub enum HValue {
-//     String(String),
-// }
-// impl Display for HValue {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             HValue::String(s) => f.write_str(&format!("{}", &s))
-//         }
-//     }
-// }
-
-// impl HValue {
-//     pub fn tname(&self) -> &str {
-//         match self {
-//             HValue::String(_) => "string",
-//         }
-//     }
-// }
 
 impl Value {
     pub fn tname(&self) -> &str {
@@ -39,6 +21,7 @@ impl Value {
             Value::Nil => "nil",
             Value::String(_) => "string",
             Value::Func(_) => "fn",
+            Value::Native(_) => "native fn",
         }
     }
     pub fn truthy(&self) -> bool {
@@ -47,6 +30,7 @@ impl Value {
             Value::Nil => false,
             Value::Bool(b) => *b,
             Value::Func(_) => true,
+            Value::Native(_) => true,
             _ => true,
         }
     }
@@ -60,6 +44,7 @@ impl Display for Value {
             Value::Nil => f.write_str("nil"),
             Value::String(s) => f.write_str(&format!("str'{}'", s)),
             Value::Func(lfn) => f.write_str(&format!("fn[{}]<{}>", lfn.arity, lfn.name)),
+            Value::Native(nfn) => f.write_str(&format!("native fn[{}]<{}>", nfn.arity(), nfn.name())),
         }
     }
 }

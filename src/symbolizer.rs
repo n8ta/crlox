@@ -1,8 +1,7 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ptr;
 use std::rc::{Weak, Rc};
 
 #[derive(Clone, Debug)]

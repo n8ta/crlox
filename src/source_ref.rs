@@ -1,8 +1,7 @@
-use std::cmp::{min, max};
 use std::rc::Rc;
 use std::fmt::{Debug, Display, Formatter};
 use colored::*;
-
+use std::cmp::{min, max};
 #[derive(Clone, PartialOrd, PartialEq, Ord, Eq, Debug)]
 pub struct Source {
     pub src: String,

@@ -179,18 +179,6 @@ impl OpTrait for NotEqual {
 }
 
 #[derive(Debug)]
-pub struct Greater {}
-
-impl OpTrait for Greater {
-    const CODE: u8 = 13;
-    const SIZE: usize = 1;
-    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
-        code.add_byte(Self::CODE, src)
-    }
-    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Greater {}) }
-}
-
-#[derive(Debug)]
 pub struct Less {}
 
 impl OpTrait for Less {
@@ -202,17 +190,6 @@ impl OpTrait for Less {
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Less {}) }
 }
 
-#[derive(Debug)]
-pub struct GreaterOrEq {}
-
-impl OpTrait for GreaterOrEq {
-    const CODE: u8 = 15;
-    const SIZE: usize = 1;
-    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
-        code.add_byte(Self::CODE, src)
-    }
-    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, GreaterOrEq {}) }
-}
 
 #[derive(Debug)]
 pub struct LessOrEq {}
@@ -386,6 +363,22 @@ impl OpTrait for Call {
     }
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
         (1, Call { arity: code[idx] })
+    }
+}
+
+
+pub struct SmallConst {
+    pub val: u8,
+}
+
+impl OpTrait for SmallConst {
+    const CODE: u8 = 27;
+    const SIZE: usize = 2;
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE, self.val], src.clone())
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        (1, SmallConst { val: code[idx] })
     }
 }
 

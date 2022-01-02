@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
-use std::rc::Rc;
-use crate::ops::{EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call};
+use std::time::{SystemTime, UNIX_EPOCH};
+use crate::ops::{EqualEqual, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst};
 use crate::value::Value;
 use crate::ops::OpTrait;
-use crate::{Chunk, SourceRef, Symbol, Symbolizer};
+use crate::{debug_println, SourceRef, Symbol, Symbolizer};
 use crate::func::Func;
+use crate::native_func::NativeFunc;
 use crate::vm::InterpErrorType::CompilerError;
 
 #[derive(Debug)]
@@ -16,6 +17,7 @@ pub enum InterpErrorType {
 }
 
 impl Display for InterpErrorType {
+
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             InterpErrorType::CompilerError => "compiler error",
@@ -31,6 +33,7 @@ pub struct InterpError {
 }
 
 impl Display for InterpError {
+
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.source {
             None => f.write_str(&format!("A {} occurred: {}\n{}", self.typ, self.msg, "--unable to find source code--")),
@@ -40,16 +43,22 @@ impl Display for InterpError {
 }
 
 impl InterpError {
+
     pub fn runtime(source: Option<SourceRef>, msg: String) -> InterpError {
         InterpError { typ: InterpErrorType::RuntimeError, source, msg }
     }
+
     pub fn compile(source: Option<SourceRef>, msg: String) -> InterpError {
         InterpError { typ: InterpErrorType::CompilerError, source, msg }
     }
 }
 
+static MAX_LOCALS: usize =  255;
+static MAX_STACK_SIZE: usize = 255;
+
 pub struct VM {
-    stack: Vec<Value>,
+    stack_idx: usize,
+    stack: Vec<Value>
     globals: HashMap<Symbol, Value>,
     symbolizer: Symbolizer,
     frames: Vec<CallFrame>,
@@ -63,10 +72,12 @@ struct CallFrame {
 }
 
 impl VM {
+
     pub fn interpret(main_func: Func, symbolizer: Symbolizer) -> Result<Value, InterpError> {
         let mut vm = VM {
             symbolizer,
             stack: vec![],
+            stack_idx: 0,
             globals: HashMap::new(),
             frames: vec![],
             frame: CallFrame {
@@ -75,19 +86,27 @@ impl VM {
                 frame_offset: 0,
             },
         };
+
+        let clock = NativeFunc::new("clock", 0, |_vec|
+            match SystemTime::now().duration_since(UNIX_EPOCH) {
+                Ok(t) => Value::Num(t.as_secs_f64() * 1000.0),
+                Err(_) => Value::Nil
+            });
+        vm.globals.insert(vm.symbolizer.get_symbol(format!("clock")), Value::Native(clock));
         vm.run()
     }
 
+    #[cfg(debug_assertions)]
     fn print_stack_frame(&self, msg: &str) {
-        println!("{} {:?}", msg, &self.stack[self.frame.frame_offset..self.stack.len()]);
+        debug_println!("{} {:?}", msg, &self.stack[self.frame.frame_offset..self.stack.len()]);
     }
 
     fn read_byte(&mut self) -> Result<u8, InterpError> {
         let ip = self.frame.ip;
+        // Ok(self.frame.func.chunk.code[self.frame.ip])
         match self.frame.func.chunk.code.get(ip) {
             Some(byte) => Ok(*byte),
             None => {
-                let ip = ip;
                 match self.frame.func.chunk.get_source(ip) {
                     None => Err(InterpError::compile(None, format!("Tried to read a byte but were unable to!"))),
                     Some(src) => Err(InterpError::compile(Some(src.clone()), format!("Tried to read a byte but were unable to!"))),
@@ -104,14 +123,16 @@ impl VM {
                 panic!("Tried to pop a value from the stack but it was empty!")
             }
             Some(val) => {
-                // println!("<== Popping {:?}", &val);
+                // debug_println!("<== Popping {:?}", &val);
                 Ok(val)
             }
         }
     }
 
     fn peek_at(&self, idx: u8) -> Result<Value, InterpError> {
-        println!("Peeking at {} + {}", idx, self.frame.frame_offset);
+        debug_println!("Peeking at {} + {}", idx, self.frame.frame_offset);
+
+        #[cfg(debug_assertions)]
         self.print_stack_frame("peek");
 
         match self.stack.get(self.frame.frame_offset + idx as usize) {
@@ -125,12 +146,20 @@ impl VM {
     }
 
     fn push(&mut self, v: Value) {
-        // println!("==> Pushing {:?}", v);
+        debug_println!("==> Pushing {:?}", v);
         self.stack.push(v);
     }
 
     fn bump_ip(&mut self) {
         self.frame.ip += 1;
+    }
+
+    fn bump_ip_2(&mut self) {
+        self.frame.ip += 2;
+    }
+
+    fn bump_ip_3(&mut self) {
+        self.frame.ip += 3;
     }
 
     fn offset_ip(&mut self, offset: isize) {
@@ -141,28 +170,36 @@ impl VM {
         }
     }
 
+
+    fn offset_ip_pos(&mut self, offset: usize) {
+        self.frame.ip += offset as usize;
+    }
+
+
     fn run(&mut self) -> Result<Value, InterpError> {
         loop {
             let inst = self.read_byte()?;
             let ip = self.frame.ip;
-            // self.frame.func.chunk.disassemble_op(&inst, ip +1);
+            // self.frame.func.chunk.disassemble_op(&inst, ip + 1);
             match inst {
                 Ret::CODE => {
+                    #[cfg(debug_assertions)]
                     self.print_stack_frame("Pre ret stack");
                     let (_len, _ret) = Ret::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
                     if let Some(frame) = self.frames.pop() {
                         let ret = self.pop()?;
-                        for _ in 0..self.frame.func.arity+1 {
+                        for _ in 0..self.frame.func.arity + 1 {
                             self.pop()?;
                         }
                         self.frame = frame;
-                        println!("Function returned {}", ret);
+                        debug_println!("Function returned {}", ret);
                         self.push(ret);
+                        #[cfg(debug_assertions)]
                         self.print_stack_frame("Post ret stack");
                     } else {
-
+                        #[cfg(debug_assertions)]
                         self.print_stack_frame("Final return stack");
-                        return Ok(Value::Nil)
+                        return Ok(Value::Nil);
                     }
                 }
                 Const::CODE => {
@@ -175,37 +212,13 @@ impl VM {
                     self.add()?;
                 }
                 Sub::CODE => {
-                    let a = self.pop()?;
-                    let b = self.pop()?;
-                    let res = match (&a, &b) {
-                        (Value::Num(a), Value::Num(b)) => Value::Num(b - a),
-                        _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(ip).unwrap().clone()),
-                                                             format!("Cannot subtract a {} and a {}", a.tname(), b.tname())))
-                    };
-                    self.push(res);
-                    self.bump_ip();
+                    self.sub()?;
                 }
                 Mult::CODE => {
-                    let a = self.pop()?;
-                    let b = self.pop()?;
-                    let res = match (&a, &b) {
-                        (Value::Num(a), Value::Num(b)) => Value::Num(b * a),
-                        _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(ip).unwrap().clone()),
-                                                             format!("Cannot multiply a {} and a {}", a.tname(), b.tname())))
-                    };
-                    self.push(res);
-                    self.bump_ip();
+                    self.mult()?;
                 }
                 Div::CODE => {
-                    let a = self.pop()?;
-                    let b = self.pop()?;
-                    let res = match (&a, &b) {
-                        (Value::Num(a), Value::Num(b)) => Value::Num(b / a),
-                        _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(ip).unwrap().clone()),
-                                                             format!("Cannot divide a {} and a {}", a.tname(), b.tname())))
-                    };
-                    self.push(res);
-                    self.bump_ip();
+                    self.div()?;
                 }
                 True::CODE => {
                     self.push(Value::Bool(true));
@@ -230,12 +243,6 @@ impl VM {
                 NotEqual::CODE => {
                     self.ne()?;
                 }
-                Greater::CODE => {
-                    self.gt()?;
-                }
-                GreaterOrEq::CODE => {
-                    self.gt_eq()?;
-                }
                 Less::CODE => {
                     self.lt()?;
                 }
@@ -244,7 +251,7 @@ impl VM {
                 }
                 Print::CODE => {
                     let value = self.pop()?;
-                    println!("Print: {}", value);
+                    println!("{}", value);
                     self.bump_ip();
                 }
                 Pop::CODE => {
@@ -252,53 +259,13 @@ impl VM {
                     self.bump_ip();
                 }
                 DefGlobal::CODE => {
-                    let (len, def_global) = DefGlobal::decode(&self.frame.func.chunk.code, ip + 1);
-                    let popped = self.pop()?;
-                    let global_name = self.frame.func.chunk.constants.get(def_global.idx as usize).unwrap();
-                    // println!("Defining global '{}' as '{}'", global_name, popped);
-                    let sym = if let Value::String(sym) = global_name {
-                        sym.clone()
-                    } else {
-                        panic!("Compiler error, non-string constant passed to DefGlobal");
-                    };
-                    self.globals.insert(sym, popped);
-                    self.offset_ip(1 + len as isize);
+                    self.def_global()?;
                 }
                 GetGlobal::CODE => {
-                    let (len, get_global) = GetGlobal::decode(&self.frame.func.chunk.code, ip + 1);
-                    let global_idx = get_global.idx as usize;
-                    let global_name = self.frame.func.chunk.constants.get(global_idx).expect("Compiler error, bad index in get global op");
-                    let global_name = if let Value::String(global_name) = global_name {
-                        // println!("Getting global {}", global_name);
-                        global_name.clone()
-                    } else {
-                        panic!("Compiler error, non-string constant passed to GetGlobal");
-                    };
-                    match self.globals.get(&global_name) {
-                        None => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(ip).unwrap().clone()),
-                                                                format!("Global variable {} not found", global_name))),
-                        Some(v) => {
-                            // println!("\tGlobal is {}", v);
-                            self.push(v.clone())
-                        }
-                    }
-                    self.offset_ip(1 + len as isize);
+                    self.get_global()?;
                 }
                 SetGlobal::CODE => {
-                    let (len, set_global) = SetGlobal::decode(&self.frame.func.chunk.code, ip + 1);
-                    let global_name = self.frame.func.chunk.constants.get(set_global.idx as usize).expect("Compiler error, bad index in get global op");
-                    let global_name = if let Value::String(global_name_sym) = global_name {
-                        global_name_sym.clone()
-                    } else { panic!("Compiler error, non-string constant passed to GetGlobal"); };
-
-                    let new_val = self.peek();
-                    if self.globals.contains_key(&global_name) {
-                        self.globals.insert(global_name.clone(), new_val.clone());
-                    } else {
-                        return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(ip).unwrap().clone()),
-                                                        format!("Cannot assign to global variable {} since it has not been declared", global_name)));
-                    }
-                    self.offset_ip(1 + len as isize);
+                    self.set_global()?;
                 }
                 GetLocal::CODE => {
                     self.get_local()?;
@@ -315,17 +282,124 @@ impl VM {
                 Call::CODE => {
                     self.call()?;
                 }
+                SmallConst::CODE => {
+                    self.small_const()?;
+                }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))
             };
         }
     }
-    fn load_const(&mut self) -> Result<(), InterpError> {
-        let (len, con) = Const::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
-        let value: Value = self.frame.func.chunk.constants.get(con.idx as usize).expect("Compiler error").clone();
-        self.push(value);
-        self.offset_ip(1 + len as isize);
+
+    fn small_const(&mut self) -> Result<(), InterpError> {
+        let (_len, op) = SmallConst::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        debug_println!("Small const! {}", op.val);
+        self.push(Value::Num(op.val as f64));
+        self.bump_ip_2();
         Ok(())
     }
+
+    fn div(&mut self) -> Result<(), InterpError> {
+        let a = self.pop()?;
+        let b = self.pop()?;
+        let res = match (&a, &b) {
+            (Value::Num(a), Value::Num(b)) => Value::Num(b / a),
+            _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
+                                                 format!("Cannot divide a {} and a {}", a.tname(), b.tname())))
+        };
+        self.push(res);
+        self.bump_ip();
+        Ok(())
+    }
+
+    fn mult(&mut self) -> Result<(), InterpError> {
+        let a = self.pop()?;
+        let b = self.pop()?;
+        let res = match (&a, &b) {
+            (Value::Num(a), Value::Num(b)) => Value::Num(b * a),
+            _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
+                                                 format!("Cannot multiply a {} and a {}", a.tname(), b.tname())))
+        };
+        self.push(res);
+        self.bump_ip();
+        Ok(())
+    }
+
+    fn sub(&mut self) -> Result<(), InterpError> {
+        let a = self.pop()?;
+        let b = self.pop()?;
+        let res = match (&a, &b) {
+            (Value::Num(a), Value::Num(b)) => Value::Num(b - a),
+            _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
+                                                 format!("Cannot subtract a {} and a {}", a.tname(), b.tname())))
+        };
+        self.push(res);
+        self.bump_ip();
+        Ok(())
+    }
+
+    fn set_global(&mut self) -> Result<(), InterpError> {
+        let (_, set_global) = SetGlobal::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        let global_name = self.frame.func.chunk.constants.get(set_global.idx as usize).expect("Compiler error, bad index in get global op");
+        let global_name = if let Value::String(global_name_sym) = global_name {
+            global_name_sym.clone()
+        } else { panic!("Compiler error, non-string constant passed to GetGlobal"); };
+
+        let new_val = self.peek();
+        if self.globals.contains_key(&global_name) {
+            self.globals.insert(global_name.clone(), new_val.clone());
+        } else {
+            return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
+                                            format!("Cannot assign to global variable {} since it has not been declared", global_name)));
+        }
+        self.bump_ip_2();
+        Ok(())
+    }
+
+    fn get_global(&mut self) -> Result<(), InterpError> {
+        let (_, get_global) = GetGlobal::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        let global_idx = get_global.idx as usize;
+        let global_name = self.frame.func.chunk.constants.get(global_idx).expect("Compiler error, bad index in get global op");
+        let global_name = if let Value::String(global_name) = global_name {
+            // debug_println!("Getting global {}", global_name);
+            global_name.clone()
+        } else {
+            panic!("Compiler error, non-string constant passed to GetGlobal");
+        };
+        match self.globals.get(&global_name) {
+            None => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
+                                                    format!("Global variable {} not found", global_name))),
+            Some(v) => {
+                // debug_println!("\tGlobal is {}", v);
+                self.push(v.clone())
+            }
+        }
+        self.bump_ip_2();
+        Ok(())
+    }
+
+    fn def_global(&mut self) -> Result<(), InterpError> {
+        let (_, def_global) = DefGlobal::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        let popped = self.pop()?;
+        let global_name = self.frame.func.chunk.constants.get(def_global.idx as usize).unwrap();
+        // debug_println!("Defining global '{}' as '{}'", global_name, popped);
+        let sym = if let Value::String(sym) = global_name {
+            sym.clone()
+        } else {
+            panic!("Compiler error, non-string constant passed to DefGlobal");
+        };
+        self.globals.insert(sym, popped);
+        self.bump_ip_2();
+        Ok(())
+    }
+
+    fn load_const(&mut self) -> Result<(), InterpError> {
+        let (_, con) = Const::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        let value: Value = self.frame.func.chunk.constants.get(con.idx as usize).expect("Compiler error").clone();
+        self.push(value);
+        self.bump_ip_2();
+        Ok(())
+    }
+
     fn negate(&mut self) -> Result<(), InterpError> {
         let popped = self.pop()?;
         if let Value::Num(n) = popped {
@@ -339,6 +413,7 @@ impl VM {
         self.bump_ip();
         Ok(())
     }
+
     fn add(&mut self) -> Result<(), InterpError> {
         let b = self.pop()?;
         let a = self.pop()?;
@@ -355,6 +430,7 @@ impl VM {
         self.bump_ip();
         Ok(())
     }
+
     fn ee(&mut self) -> Result<(), InterpError> {
         let a = self.pop()?;
         let b = self.pop()?;
@@ -373,6 +449,7 @@ impl VM {
         self.bump_ip();
         Ok(())
     }
+
     fn ne(&mut self) -> Result<(), InterpError> {
         let a = self.pop()?;
         let b = self.pop()?;
@@ -380,101 +457,103 @@ impl VM {
         self.bump_ip();
         Ok(())
     }
-    fn gt(&mut self) -> Result<(), InterpError> {
-        let a = self.pop()?;
-        let b = self.pop()?;
-        match (&a, &b) {
-            (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b > a)),
-            _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
-                                                 format!("Cannot compare {} and {} with the > op", a.tname(), b.tname())))
-        }
-        self.bump_ip();
-        Ok(())
-    }
-    fn gt_eq(&mut self) -> Result<(), InterpError> {
-        let a = self.pop()?;
-        let b = self.pop()?;
-        match (&a, &b) {
-            (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b >= a)),
-            _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
-                                                 format!("Cannot compare {} and {} with the >= operation", a.tname(), b.tname())))
-        }
-        self.bump_ip();
-        Ok(())
-    }
+
     fn lt(&mut self) -> Result<(), InterpError> {
         let a = self.pop()?;
         let b = self.pop()?;
         match (&a, &b) {
             (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b < a)),
             _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
-                                                 format!("Cannot compare {} and {} with the < operation", a.tname(), b.tname())))
+                                                 format!("Cannot compare {} and {} with the < or > operation", a.tname(), b.tname())))
         }
         self.bump_ip();
         Ok(())
     }
+
     fn lt_eq(&mut self) -> Result<(), InterpError> {
         let a = self.pop()?;
         let b = self.pop()?;
         match (&a, &b) {
             (Value::Num(a), Value::Num(b)) => self.push(Value::Bool(b <= a)),
             _ => return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
-                                                 format!("Cannot compare {} and {} with the <= operation", a.tname(), b.tname())))
+                                                 format!("Cannot compare {} and {} with the <= or >= operation", a.tname(), b.tname())))
         }
         self.bump_ip();
         Ok(())
     }
+
     fn get_local(&mut self) -> Result<(), InterpError> {
-        let (len, get_local) = GetLocal::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
-        println!("Pre get local[idx {}]", get_local.idx);
+        let (_, get_local) = GetLocal::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        debug_println!("Pre get local[idx {}]", get_local.idx);
+        #[cfg(debug_assertions)]
         self.print_stack_frame("get local");
         let peeked = self.peek_at(get_local.idx)?;
-        println!("Got local {:?}", &peeked);
+        debug_println!("Got local {:?}", &peeked);
         self.push(peeked);
-        self.offset_ip(1 + len as isize);
+        self.bump_ip_2();
         Ok(())
     }
+
     fn set_local(&mut self) -> Result<(), InterpError> {
-        let (len, set_local) = SetLocal::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        let (_, set_local) = SetLocal::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
         let stack_len = self.stack.len();
-        // println!("Setting local to {}", self.peek().clone());
+        // debug_println!("Setting local to {}", self.peek().clone());
         self.stack[set_local.idx as usize] = self.peek().clone();
-        self.offset_ip(1 + len as isize);
+        self.bump_ip_2();
         Ok(())
     }
+
     fn rel_jump_if_false(&mut self) -> Result<(), InterpError> {
-        let (len, jump) = RelJumpIfFalse::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        let (_, jump) = RelJumpIfFalse::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
         if !self.peek().truthy() {
             self.offset_ip(jump.idx as isize);
         } else {
-            self.offset_ip(1 + len as isize);
+            self.bump_ip_3();
         }
         Ok(())
     }
+
     fn rel_jump(&mut self) -> Result<(), InterpError> {
         let (_, jump) = RelJump::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
         self.offset_ip(jump.idx as isize);
         Ok(())
     }
+
     fn call(&mut self) -> Result<(), InterpError> {
-        let (len, call) = Call::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
-        call.arity;
-        self.offset_ip((len + 1) as isize);
+        let (_, call) = Call::decode(&self.frame.func.chunk.code, self.frame.ip + 1);
+        self.bump_ip_2();
+        #[cfg(debug_assertions)]
         self.print_stack_frame("pre call");
-        if let Ok(Value::Func(f)) = self.peek_at((self.stack.len() - (call.arity as usize) - 1) as u8) {
-            println!("new func disass");
-            f.chunk.disassemble();
-            let mut new_frame = CallFrame {
-                func: f.clone(),
-                ip: 0,
-                frame_offset: self.stack.len() - (call.arity as usize) - 1,
-            };
-            swap(&mut new_frame, &mut self.frame);
-            self.frames.push(new_frame);
-        } else {
-            panic!("todo:")
+        let peeked = self.peek_at((self.stack.len() - (call.arity as usize) - 1) as u8)?;
+        match peeked {
+            Value::Func(f) => {
+                if call.arity != f.arity {
+                    return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()), format!("Function {} expects {} arguments but got {}", f.name, f.arity, call.arity)));
+                }
+                debug_println!("new func disass");
+                // if
+                // f.chunk.disassemble();
+                let mut new_frame = CallFrame {
+                    func: f.clone(),
+                    ip: 0,
+                    frame_offset: self.stack.len() - (call.arity as usize) - 1,
+                };
+                swap(&mut new_frame, &mut self.frame);
+                self.frames.push(new_frame);
+            }
+            Value::Native(native) => {
+                if call.arity != native.arity() {
+                    return Err(InterpError::runtime(
+                        Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
+                        format!("Function {} expects {} arguments but got {}", native.name(), native.arity(), call.arity)));
+                }
+                self.push(native.call(vec![]));
+            }
+            _ => {
+                return Err(InterpError::runtime(Some(self.frame.func.chunk.get_source(self.frame.ip).unwrap().clone()),
+                                                format!("Cannot call {}", self.peek().tname())));
+            }
         }
-        self.print_stack_frame("end of call, stack {:?}");
         Ok(())
     }
 }

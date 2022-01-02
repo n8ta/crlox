@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 
 /// A generic trie relying on cloneable and comparable elements.
 /// The empty Slice<T> is a valid element to find/delete/insert.
@@ -88,7 +87,7 @@ fn test_trie() {
 fn test_trie_rand() {
 
     use rand::Rng;
-    use std::collections::HashSet;
+    use std::collections::HashMap;
 
     fn make_vec() -> Vec<usize> {
         let mut rng = rand::thread_rng();

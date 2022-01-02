@@ -18,6 +18,8 @@ mod compiler;
 mod trie;
 mod symbolizer;
 mod e2e_tests;
+mod native_func;
+mod debug;
 
 
 fn main() {

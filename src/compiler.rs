@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
-use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Greater, GreaterOrEq, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call};
+use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call, SmallConst};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Num, Scanner, STRING_TTYPE_ID, Token, TType, TTypeId};
 use crate::{Chunk, SourceRef, Symbol};
 use crate::chunk::Write;
@@ -83,7 +83,6 @@ struct Scope {
 
 pub struct Compiler {
     pub current_chunk: Chunk,
-    src: String,
     parser: Parser,
     rules: HashMap<TTypeId, Rule>,
     scanner: Scanner,
@@ -152,7 +151,6 @@ impl Compiler {
         Compiler {
             current_chunk: Chunk::new(),
             locals: vec![],
-            src,
             scanner,
             parser: Parser {
                 panic_mode: false,
@@ -169,7 +167,7 @@ impl Compiler {
     fn run(&mut self) -> Result<(), CompilerError> {
         advance(self)?;
 
-        while !matches(self, TType::EOF.id()) {
+        while !matches(self, TType::EOF.id())? {
             declaration(self, true)?;
         }
         if let Some(err) = &self.parser.had_error {
@@ -217,12 +215,12 @@ fn synchronize(compiler: &mut Compiler) -> Result<(), CompilerError> {
     Ok(())
 }
 
-fn matches(compiler: &mut Compiler, typ: TTypeId) -> bool {
+fn matches(compiler: &mut Compiler, typ: TTypeId) -> Result<bool, CompilerError> {
     if compiler.parser.current.kind.id() != typ {
-        return false;
+        return Ok(false);
     }
-    advance(compiler);
-    true
+    advance(compiler)?;
+    Ok(true)
 }
 
 fn begin_scope(compiler: &mut Compiler) {
@@ -238,7 +236,7 @@ fn end_scope(compiler: &mut Compiler) {
         pops += 1;
         scope.local_count -= 1;
     }
-    for _ in (0..pops) {
+    for _ in 0..pops {
         Pop {}.emit(compiler);
     }
 }
@@ -263,7 +261,7 @@ fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), Com
         infix(compiler, false)?;
     }
 
-    if can_assign && matches(compiler, TType::EQUAL.id()) {
+    if can_assign && matches(compiler, TType::EQUAL.id())? {
         Err(CompilerError::new(format!("Invalid assignment target"), compiler.parser.previous.src.clone()))
     } else {
         Ok(())
@@ -306,7 +304,7 @@ fn declare_variable(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Re
         Ok(())
     } else {
         for local in compiler.locals.iter() {
-            if local.depth < compiler.scopes.len()  {
+            if local.depth < compiler.scopes.len() {
                 break;
             }
             if local.name == name {
@@ -349,7 +347,7 @@ fn block(compiler: &mut Compiler) -> Result<(), CompilerError> {
 
 fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     let (_name, const_ref) = parse_variable(compiler, "Expected to find an identifier after a var")?;
-    if matches(compiler, TType::EQUAL.id()) {
+    if matches(compiler, TType::EQUAL.id())? {
         expression(compiler, can_assign)?;
     } else {
         Nil {}.emit(compiler);
@@ -372,7 +370,7 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
     let mut arity: usize = 0;
     if !(check(compiler, TType::RIGHT_PAREN.id())) {
         let mut first = true;
-        while matches(compiler, TType::COMMA.id()) || first {
+        while matches(compiler, TType::COMMA.id())? || first {
             first = false;
             arity += 1;
             let (_symbol, name_const) = parse_variable(compiler, "Expected a parameter name here")?;
@@ -387,6 +385,9 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
     consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after parameters")?;
     consume(compiler, TType::LEFT_BRACE.id(), "Expected '{' before function body")?;
     block(compiler)?;
+
+    Nil {}.emit(compiler);
+    Ret {}.emit(compiler);
 
     end_scope(compiler);
     let _ = compiler.scopes.pop();
@@ -415,9 +416,9 @@ fn fun_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 }
 
 fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    if matches(compiler, TType::FUN.id()) {
+    if matches(compiler, TType::FUN.id())? {
         fun_declaration(compiler, can_assign)?;
-    } else if matches(compiler, TType::VAR.id()) {
+    } else if matches(compiler, TType::VAR.id())? {
         var_declaration(compiler, can_assign)?;
     } else {
         statement(compiler, can_assign)?;
@@ -429,15 +430,15 @@ fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compiler
 }
 
 fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    if matches(compiler, TType::PRINT.id()) {
+    if matches(compiler, TType::PRINT.id())? {
         print_statement(compiler, can_assign)
-    } else if matches(compiler, TType::RETURN.id()) {
+    } else if matches(compiler, TType::RETURN.id())? {
         return_statement(compiler, can_assign)
-    } else if matches(compiler, TType::IF.id()) {
+    } else if matches(compiler, TType::IF.id())? {
         if_statement(compiler, can_assign)
-    } else if matches(compiler, TType::WHILE.id()) {
+    } else if matches(compiler, TType::WHILE.id())? {
         while_statement(compiler, can_assign)
-    } else if matches(compiler, TType::LEFT_BRACE.id()) {
+    } else if matches(compiler, TType::LEFT_BRACE.id())? {
         begin_scope(compiler);
         block(compiler)?;
         end_scope(compiler);
@@ -474,7 +475,7 @@ fn expression_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(),
 }
 
 fn return_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    if matches(compiler, TType::SEMICOLON.id()) {
+    if matches(compiler, TType::SEMICOLON.id())? {
         Nil {}.emit(compiler);
         Ret {}.emit(compiler);
     } else {
@@ -520,15 +521,20 @@ fn unary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError
     Ok(())
 }
 
-fn emit_const(compiler: &mut Compiler, value: Value, src: SourceRef) -> Const {
+fn emit_const(compiler: &mut Compiler, value: Value, src: SourceRef) {
+    if let Value::Num(num) = value {
+        if (0.0..255.0).contains(&num) {
+            SmallConst { val: num as u8 }.write(&mut compiler.current_chunk, src);
+            return;
+        }
+    }
     let con = compiler.current_chunk.add_const(value);
     con.write(&mut compiler.current_chunk, src.clone());
-    con
 }
 
 fn argument_list(compiler: &mut Compiler) -> Result<u8, CompilerError> {
     let mut count = 0;
-    if !matches(compiler, TType::RIGHT_PAREN.id()) {
+    if !matches(compiler, TType::RIGHT_PAREN.id())? {
         let mut first = true;
         while check(compiler, TType::COMMA.id()) || first {
             if !first {
@@ -538,8 +544,8 @@ fn argument_list(compiler: &mut Compiler) -> Result<u8, CompilerError> {
             expression(compiler, false)?;
             count += 1;
         }
+        consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after arguments.")?;
     }
-    consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after arguments.")?;
     if count > u8::MAX {
         Err(CompilerError::new(format!("Cannot have more than {} arguments.", u8::MAX), compiler.parser.previous.src.clone()))
     } else {
@@ -584,7 +590,7 @@ fn if_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compile
 
     statement(compiler, can_assign)?;
 
-    if matches(compiler, TType::ELSE.id()) {
+    if matches(compiler, TType::ELSE.id())? {
         let mut if_done_jump = RelJump { idx: -1 };
         let if_done_jump_write = if_done_jump.emit(compiler);
         if_jump.overwrite(&mut compiler.current_chunk, &if_jump_write);
@@ -633,8 +639,14 @@ fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerErro
         TType::EQUAL_EQUAL => EqualEqual {}.write(&mut compiler.current_chunk, typ.src),
         TType::LESS => Less {}.write(&mut compiler.current_chunk, typ.src),
         TType::LESS_EQUAL => LessOrEq {}.write(&mut compiler.current_chunk, typ.src),
-        TType::GREATER => Greater {}.write(&mut compiler.current_chunk, typ.src),
-        TType::GREATER_EQUAL => GreaterOrEq {}.write(&mut compiler.current_chunk, typ.src),
+        TType::GREATER => {
+            LessOrEq {}.write(&mut compiler.current_chunk, typ.src.clone());
+            Not{}.write(&mut compiler.current_chunk, typ.src)
+        }
+        TType::GREATER_EQUAL => {
+            Less {}.write(&mut compiler.current_chunk, typ.src.clone());
+            Not{}.write(&mut compiler.current_chunk, typ.src)
+        }
         _ => panic!("bad typ"),
     };
     Ok(())
@@ -672,7 +684,6 @@ enum Resolution {
 }
 
 fn resolve_local(compiler: &mut Compiler, sym: &Symbol) -> Resolution {
-
     for (i, local) in compiler.locals.iter().enumerate().rev() {
         if local.name == *sym {
             return Resolution::Local(i as u8);
@@ -686,7 +697,7 @@ fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compi
         let prev = compiler.parser.previous.src.clone();
         match resolve_local(compiler, str) {
             Resolution::Local(local_idx) => {
-                if can_assign && matches(compiler, TType::EQUAL.id()) {
+                if can_assign && matches(compiler, TType::EQUAL.id())? {
                     expression(compiler, can_assign)?;
                     SetLocal { idx: local_idx }.write(&mut compiler.current_chunk, prev);
                 } else {
@@ -695,7 +706,7 @@ fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compi
             }
             Resolution::Global => {
                 let const_ref = identifier_constant(str.clone(), &mut compiler.current_chunk)?;
-                if can_assign && matches(compiler, TType::EQUAL.id()) {
+                if can_assign && matches(compiler, TType::EQUAL.id())? {
                     expression(compiler, can_assign)?;
                     SetGlobal { idx: const_ref.idx }.write(&mut compiler.current_chunk, prev);
                 } else {
@@ -727,7 +738,7 @@ fn advance(compiler: &mut Compiler) -> Result<(), CompilerError> {
     swap(&mut compiler.parser.current, &mut compiler.parser.previous);
     loop {
         compiler.parser.current = compiler.scanner.scan_token();
-        match &compiler.parser.current.kind {
+        match &compiler.parser.current.kind.clone() {
             TType::ERROR(msg) => {
                 error_at_current(compiler, &format!("Scanner error: {}", msg))?;
             }
