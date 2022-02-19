@@ -1,26 +1,36 @@
+use std::ops::Deref;
 use std::rc::Rc;
 use crate::value::Value;
 
 
 #[derive(Clone, Debug)]
 pub struct NativeFunc {
-    inner: Rc<NativeFuncInner>,
+    inner: &'static NativeFuncInner,
+}
+
+
+impl Deref for NativeFunc {
+    type Target = &'static NativeFuncInner;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl PartialEq for NativeFunc {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.inner, &other.inner)
+        std::ptr::eq(self.inner, other.inner)
     }
 }
 
 impl NativeFunc {
     pub fn new(name: &str, arity: u8, func: fn(Vec<Value>) -> Value) -> Self {
+        let inner: &'static NativeFuncInner =  Box::leak(Box::new(NativeFuncInner {
+            name: name.to_string(),
+            func,
+            arity,
+        }));
         NativeFunc {
-            inner: Rc::new(NativeFuncInner {
-                name: name.to_string(),
-                func,
-                arity,
-            })
+            inner
         }
     }
     pub fn arity(&self) -> u8 {
@@ -35,8 +45,8 @@ impl NativeFunc {
 }
 
 #[derive(Debug)]
-struct NativeFuncInner {
-    arity: u8,
-    name: String,
+pub struct NativeFuncInner {
+    pub arity: u8,
+    pub name: String,
     func: fn(Vec<Value>) -> Value,
 }

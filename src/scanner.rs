@@ -1,10 +1,13 @@
+use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::mem::swap;
 use std::num::ParseFloatError;
 use std::rc::Rc;
 use std::str::FromStr;
+use std::thread::current;
 use crate::source_ref::Source;
-use crate::{SourceRef, Symbolizer};
+use crate::{debug_println, SourceRef, Symbolizer};
 use crate::symbolizer::Symbol;
 use crate::trie::Trie;
 
@@ -20,11 +23,13 @@ impl Token {
     }
 }
 
-#[derive(Debug,  Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Num {
     pub num: f64,
 }
+
 impl Eq for Num {}
+
 impl Hash for Num {
     fn hash<H: Hasher>(&self, state: &mut H) {
         (self.num as i64).hash(state)
@@ -80,6 +85,7 @@ pub enum TType {
     ERROR(String),
     EOF,
 }
+
 pub const IDENTIFIER_TTYPE_ID: TTypeId = 19;
 pub const STRING_TTYPE_ID: TTypeId = 20;
 
@@ -130,6 +136,7 @@ impl Display for TType {
         f.write_str(str)
     }
 }
+
 impl TType {
     pub fn tname(self) -> &'static str {
         match self {
@@ -221,7 +228,12 @@ impl TType {
     }
 }
 
+#[derive(Clone)]
 pub struct Scanner {
+    inner: Rc<RefCell<ScannerInner>>,
+}
+
+struct ScannerInner {
     start: usize,
     current: usize,
     line: usize,
@@ -229,10 +241,32 @@ pub struct Scanner {
     chars: Vec<char>,
     keywords: Trie<u8, TType>,
     symbolizer: Symbolizer,
+    curr: Token,
+    previous: Token,
 }
 
+
 impl Scanner {
-    pub fn new(src: String, symbolizer: Symbolizer) -> Scanner {
+    pub fn scan_token(&mut self) -> Token {
+        self.inner.borrow_mut().scan_token()
+    }
+    pub fn new(src: String, symbolize: Symbolizer) -> Scanner {
+        Scanner {
+            inner: Rc::new(RefCell::new(ScannerInner::new(src, symbolize))),
+        }
+    }
+    pub fn current(&self) -> Token {
+        debug_println!("Scanner-current: {:?}", self.inner.borrow().curr.kind);
+        self.inner.borrow().curr.clone()
+    }
+    pub fn previous(&self) -> Token {
+        debug_println!("Scanner-previous: {:?}", self.inner.borrow().previous.kind);
+        self.inner.borrow().previous.clone()
+    }
+}
+
+impl ScannerInner {
+    fn new(src: String, symbolizer: Symbolizer) -> ScannerInner {
         let mut keywords: Trie<u8, TType> = Trie::new();
         {
             keywords.insert("AND".as_bytes(), TType::AND);
@@ -265,10 +299,8 @@ impl Scanner {
             keywords.insert("fun".as_bytes(), TType::FUN);
             keywords.insert("RETURN".as_bytes(), TType::RETURN);
             keywords.insert("return".as_bytes(), TType::RETURN);
-
-
         }
-        Scanner {
+        ScannerInner {
             keywords,
             start: 0,
             current: 0,
@@ -276,6 +308,8 @@ impl Scanner {
             chars: src.chars().collect(),
             src: Rc::new(Source::new(src)),
             symbolizer,
+            curr: Token::new(TType::AND, SourceRef::simple()),
+            previous: Token::new(TType::AND, SourceRef::simple()),
         }
     }
     fn is_at_end(&self) -> bool {
@@ -343,14 +377,25 @@ impl Scanner {
         }
         let str: String = self.chars[self.start..self.current].iter().collect();
         match f64::from_str(&str) {
-            Ok(n) => self.make_token(TType::NUMBER(Num{num: n})),
+            Ok(n) => self.make_token(TType::NUMBER(Num { num: n })),
             Err(_) => self.make_err_token(format!("Tried to parse '{}' as a number but failed", str)),
         }
     }
-    pub fn scan_token(&mut self) -> Token {
+    fn scan_token(&mut self) -> Token {
+        swap(&mut self.previous, &mut self.curr);
+        self.curr = self.scan_token_helper();
+        self.curr.clone()
+    }
+    fn scan_token_helper(&mut self) -> Token {
         self.strip_wspace();
         self.start = self.current;
-        if self.is_at_end() { return Token::new(TType::EOF, SourceRef::new(self.src.src.len().saturating_sub(1), 1, self.src.lines, self.src.clone())); }
+        if self.is_at_end() {
+            return Token::new(TType::EOF, SourceRef::new(
+                self.start.saturating_sub(1),
+                1,
+                self.src.lines,
+                self.src.clone()));
+        }
         let c = self.advance();
         if c.is_digit(10) {
             return self.number();
@@ -397,22 +442,23 @@ impl Scanner {
                     return self.make_err_token("Unterminated string literal".to_string());
                 }
                 self.advance();
-                let literal = self.chars[self.start+1..self.current-1].iter().collect();
+                let literal = self.chars[self.start + 1..self.current - 1].iter().collect();
                 let sym = self.symbolizer.get_symbol(literal);
                 self.make_token(TType::STRING(sym))
             }
             _ => {
                 if c.is_alphabetic() {
-                    while self.peek().is_alphanumeric() { self.advance(); }
-                    let ident: String = self.chars[self.start..self.current].iter().collect::<String>();
-                    let ident = self.symbolizer.get_symbol(ident);
-                    if let Some(ttype) = self.keywords.find(ident.as_bytes()) {
+                    while self.peek().is_alphanumeric() || self.peek() == '_' { self.advance(); }
+                    let str = self.chars[self.start..self.current].iter().collect::<String>();
+                    let sym = self.symbolizer.get_symbol(str.clone());
+                    let keyword = self.keywords.find(str.as_bytes());
+                    if let Some(ttype) = keyword {
                         self.make_token((*ttype).clone())
                     } else {
-                        self.make_token(TType::IDENTIFIER(ident))
+                        self.make_token(TType::IDENTIFIER(sym))
                     }
                 } else {
-                    panic!("todo: error");
+                    panic!("todo: error: {}", c);
                 }
             }
         }

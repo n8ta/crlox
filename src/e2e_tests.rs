@@ -7,7 +7,7 @@ fn end_to_end_tests() {
 
     let src = Path::new(file!()).parent().expect("e2e_test file has no parent?").canonicalize().expect("root of project not found...");
     let tests_root = src.join("../tests").canonicalize().expect("expected tests dir to be ../tests from e2e_tests.rs");
-    let lox_path = src.join("../target/debug/rclox");
+    let lox_path = src.join("../target/release/rclox");
     let lox_exe = lox_path.canonicalize().expect("couldn't find lox exe @ {}");
 
     for test in read_dir(tests_root.clone()).unwrap() {

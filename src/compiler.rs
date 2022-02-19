@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
-use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call, SmallConst};
+use std::sync::atomic::compiler_fence;
+use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, DefGlobal, GetGlobal, SetGlobal, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call, SmallConst, Closure, SetUpValue, GetUpValue, OpU8};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Num, Scanner, STRING_TTYPE_ID, Token, TType, TTypeId};
-use crate::{Chunk, SourceRef, Symbol};
+use crate::{Chunk, debug_println, SourceRef, Symbol};
 use crate::chunk::Write;
+use crate::closure::RtClosure;
 use crate::func::{Func, FuncType};
+use crate::source_ref::Source;
 use crate::symbolizer::Symbolizer;
 use crate::value::{Value};
 
@@ -69,42 +72,81 @@ impl From<u8> for Precedence {
     }
 }
 
-#[derive(Debug)]
-struct Local {
-    name: Symbol,
+#[derive(Debug, Clone)]
+pub struct Local {
+    pub name: Symbol,
     depth: usize,
     src: SourceRef,
     initialized: bool,
 }
 
-struct Scope {
-    local_count: usize,
+impl Local {
+    pub fn new(name: Symbol, depth: usize, src: SourceRef) -> Self {
+        Local { name, depth, src, initialized: false }
+    }
+}
+
+pub struct Scope {
+    pub local_count: usize,
+    pub locals: Vec<Local>,
+}
+
+impl Scope {
+    pub fn new(local_count: usize, locals: Vec<Local>) -> Self {
+        Scope { local_count, locals }
+    }
+}
+
+
+struct Stack {
+    scope: Vec<Scope>,
+    ups: Vec<UpValue>,
 }
 
 pub struct Compiler {
-    pub current_chunk: Chunk,
-    parser: Parser,
+    src: String,
+    pub chunk: Chunk,
     rules: HashMap<TTypeId, Rule>,
     scanner: Scanner,
     symbolizer: Symbolizer,
     scopes: Vec<Scope>,
-    locals: Vec<Local>,
+    ups: Vec<UpValue>,
+    enclosing: Option<Box<Compiler>>,
+    panic_mode: bool,
+    had_error: Option<CompilerError>,
+}
+
+#[derive(PartialEq, PartialOrd, Clone)]
+pub struct UpValue {
+    pub index: u8,
+    pub is_local: bool,
+}
+
+impl UpValue {
+    fn emit(&self, compiler: &mut Compiler) {
+        let prev = compiler.prev_source().clone();
+        compiler.current_chunk().add_byte(self.index, prev.clone());
+        compiler.current_chunk().add_byte(if self.is_local { 1 } else { 0 }, prev);
+    }
 }
 
 impl Compiler {
-    pub fn prev_source(&self) -> &SourceRef {
-        &self.parser.previous.src
+    pub fn prev_source(&self) -> SourceRef {
+        self.scanner.previous().src.clone()
     }
     pub fn compile(src: String, symbolizer: Symbolizer) -> Result<Func, CompilerError> {
-        let mut compiler = Compiler::new(src, symbolizer);
+        let scanner = Scanner::new(src.clone(), symbolizer.clone());
+        let mut compiler = Compiler::new(src, symbolizer, scanner);
         compiler.run()?;
-        Ret {}.write(&mut compiler.current_chunk, SourceRef::simple());
+        Ret {}.write(&mut compiler.current_chunk(), SourceRef::simple());
         let mut c = Chunk::new();
-        swap(&mut c, &mut compiler.current_chunk);
+        swap(&mut c, &mut compiler.chunk);
         Ok(Func::global(c))
     }
-    fn new(src: String, symbolizer: Symbolizer) -> Compiler {
-        let scanner = Scanner::new(src.clone(), symbolizer.clone());
+    pub fn current_chunk(&mut self) -> &mut Chunk {
+        &mut self.chunk
+    }
+    fn new(src: String, symbolizer: Symbolizer, scanner: Scanner) -> Compiler {
         let mut rules = HashMap::new();
         {
             rules.insert(TType::LEFT_PAREN.id(), Rule::new(Some(grouping), Some(call), Precedence::CALL));
@@ -149,18 +191,16 @@ impl Compiler {
             rules.insert(TType::EOF.id(), Rule::new(None, None, Precedence::NONE));
         }
         Compiler {
-            current_chunk: Chunk::new(),
-            locals: vec![],
+            src,
+            chunk: Chunk::new(),
             scanner,
-            parser: Parser {
-                panic_mode: false,
-                had_error: None,
-                current: Token::new(TType::AND, SourceRef::simple()),
-                previous: Token::new(TType::AND, SourceRef::simple()),
-            },
+            panic_mode: false,
+            had_error: None,
             symbolizer,
-            rules,
             scopes: vec![],
+            ups: vec![],
+            rules,
+            enclosing: None,
         }
     }
 
@@ -170,18 +210,11 @@ impl Compiler {
         while !matches(self, TType::EOF.id())? {
             declaration(self, true)?;
         }
-        if let Some(err) = &self.parser.had_error {
+        if let Some(err) = &self.had_error {
             return Err(CompilerError::new(err.msg.clone(), err.src.clone()));
         }
         Ok(())
     }
-}
-
-struct Parser {
-    current: Token,
-    previous: Token,
-    panic_mode: bool,
-    had_error: Option<CompilerError>,
 }
 
 type CompilerFnTy = fn(&mut Compiler, bool) -> Result<(), CompilerError>;
@@ -197,9 +230,9 @@ impl Rule {
 }
 
 fn synchronize(compiler: &mut Compiler) -> Result<(), CompilerError> {
-    compiler.parser.panic_mode = false;
+    compiler.panic_mode = false;
     loop {
-        let token = &compiler.parser.current.kind;
+        let token = &compiler.scanner.current().kind;
         if let TType::EOF = token {
             break;
         }
@@ -216,38 +249,31 @@ fn synchronize(compiler: &mut Compiler) -> Result<(), CompilerError> {
 }
 
 fn matches(compiler: &mut Compiler, typ: TTypeId) -> Result<bool, CompilerError> {
-    if compiler.parser.current.kind.id() != typ {
+    if compiler.scanner.current().kind.id() != typ {
         return Ok(false);
     }
     advance(compiler)?;
     Ok(true)
 }
 
-fn begin_scope(compiler: &mut Compiler) {
-    compiler.scopes.push(Scope { local_count: 0 });
+fn begin_scope(compiler: &mut Compiler, is_func: bool) {
+    compiler.scopes.push(Scope { local_count: 0, locals: vec![] })
 }
 
 fn end_scope(compiler: &mut Compiler) {
-    let scope_depth = compiler.scopes.len() - 1;
-    let scope = compiler.scopes.last_mut().unwrap();
-    let mut pops = 0;
-    while scope.local_count > 0 && compiler.locals.last().unwrap().depth > (scope_depth) {
-        let popped = compiler.locals.pop().unwrap();
-        pops += 1;
-        scope.local_count -= 1;
-    }
-    for _ in 0..pops {
+    let scope = compiler.scopes.pop().unwrap();
+    for _ in 0..scope.locals.len() {
         Pop {}.emit(compiler);
     }
 }
 
 fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), CompilerError> {
     advance(compiler)?;
-    let prefix_rule = get_rule(&compiler.rules, &compiler.parser.previous.kind); // todo: error?
+    let prefix_rule = get_rule(&compiler.rules, &compiler.scanner.previous().kind); // todo: error?
     let prefix_rule = if let Some(func) = prefix_rule.prefix {
         func
     } else {
-        let msg = format!("Unexpected token: {}", compiler.parser.previous.kind);
+        let msg = format!("Unexpected token: {}", compiler.scanner.previous().kind);
         return error_at_prev(compiler,
                              &msg);
     };
@@ -255,14 +281,14 @@ fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), Com
     let can_assign = prec <= Precedence::ASSIGNMENT;
     prefix_rule(compiler, can_assign)?;
 
-    while (prec as u8) <= (get_rule(&compiler.rules, &compiler.parser.current.kind).precedence as u8) {
+    while (prec as u8) <= (get_rule(&compiler.rules, &compiler.scanner.current().kind).precedence as u8) {
         advance(compiler)?;
-        let infix = get_rule(&compiler.rules, &compiler.parser.previous.kind).infix.expect("No infix for this rule");
+        let infix = get_rule(&compiler.rules, &compiler.scanner.previous().kind).infix.expect("No infix for this rule");
         infix(compiler, false)?;
     }
 
     if can_assign && matches(compiler, TType::EQUAL.id())? {
-        Err(CompilerError::new(format!("Invalid assignment target"), compiler.parser.previous.src.clone()))
+        Err(CompilerError::new(format!("Invalid assignment target"), compiler.scanner.previous().src.clone()))
     } else {
         Ok(())
     }
@@ -273,18 +299,18 @@ fn identifier_constant(sym: Symbol, chunk: &mut Chunk) -> Result<Const, Compiler
 }
 
 fn add_local(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Result<(), CompilerError> {
-    if compiler.locals.len() > 255 {
-        return Err(CompilerError::new(format!("Hit maximum of 255 local variables in scope"), compiler.parser.previous.src.clone()));
+    if compiler.scopes.last().expect("to be in a scope when adding a local").locals.len() > 255 {
+        return Err(CompilerError::new(format!("Hit maximum of 255 local variables in scope"), compiler.scanner.previous().src.clone()));
     }
-    compiler.locals.push(Local { name, depth: compiler.scopes.len() - 1, src, initialized: false });
-    compiler.scopes.last_mut().unwrap().local_count += 1;
+    let depth = compiler.scopes.len();
+    compiler.scopes.last_mut().unwrap().locals.push(Local { name, depth: depth - 1, src, initialized: false });
     Ok(())
 }
 
 fn mark_initialized(compiler: &mut Compiler) -> Result<(), CompilerError> {
     let depth = compiler.scopes.len();
     if depth == 0 { return Ok(()); }
-    let last = compiler.locals.last_mut().unwrap();
+    let last = compiler.scopes.last_mut().expect("to be in scope").locals.last_mut().expect("locals to not be empty");
     last.depth = depth;
     last.initialized = true;
     Ok(())
@@ -300,42 +326,40 @@ fn define_variable(compiler: &mut Compiler, global: DefGlobal) -> Result<(), Com
 }
 
 fn declare_variable(compiler: &mut Compiler, name: Symbol, src: SourceRef) -> Result<(), CompilerError> {
-    if compiler.scopes.len() == 0 {
-        Ok(())
-    } else {
-        for local in compiler.locals.iter() {
+    if let Some(scope) = compiler.scopes.last() {
+        for local in scope.locals.iter() {
             if local.depth < compiler.scopes.len() {
                 break;
             }
             if local.name == name {
-                return Err(CompilerError::new(format!("Cannot define two variables with the name {}", name), compiler.parser.previous.src.clone()));
+                return Err(CompilerError::new(format!("Cannot define two variables with the name {}", name), compiler.scanner.previous().src.clone()));
             }
         }
         add_local(compiler, name, src)?;
-        Ok(())
     }
+    Ok(())
 }
 
 fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<(Symbol, Const), CompilerError> {
     consume(compiler, IDENTIFIER_TTYPE_ID, message)?;
-    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind.clone() {
-        declare_variable(compiler, str.clone(), compiler.parser.previous.src.clone())?;
+    if let TType::IDENTIFIER(str) = &compiler.scanner.previous().kind.clone() {
+        declare_variable(compiler, str.clone(), compiler.scanner.previous().src.clone())?;
         if compiler.scopes.len() > 0 {
-            Ok((str.clone(), compiler.current_chunk.add_const(Value::String(str.clone()))))
+            Ok((str.clone(), compiler.current_chunk().add_const(Value::String(str.clone()))))
         } else {
-            Ok((str.clone(), identifier_constant(str.clone(), &mut compiler.current_chunk)?))
+            Ok((str.clone(), identifier_constant(str.clone(), &mut compiler.current_chunk())?))
         }
     } else {
-        let typ = compiler.parser.previous.kind.clone().tname();
+        let typ = compiler.scanner.previous().kind.clone().tname();
         Err(CompilerError::new(
             format!("Expected to find an identifier but found a {}",
                     typ),
-            compiler.parser.previous.src.clone()))
+            compiler.scanner.previous().src.clone()))
     }
 }
 
 fn check(compiler: &mut Compiler, typ: TTypeId) -> bool {
-    compiler.parser.current.kind.id() == typ
+    compiler.scanner.current().kind.id() == typ
 }
 
 fn block(compiler: &mut Compiler) -> Result<(), CompilerError> {
@@ -360,49 +384,49 @@ fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 
 fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<Const, CompilerError> {
     consume(compiler, TType::LEFT_PAREN.id(), "Expected '(' after function name")?;
-    let mut new_chunk = Chunk::new();
-    let mut locals = vec![];
-    swap(&mut compiler.current_chunk, &mut new_chunk);
-    swap(&mut compiler.locals, &mut locals);
-    begin_scope(compiler);
-    declare_variable(compiler, name.clone(), compiler.parser.previous.src.clone())?;
-    mark_initialized(compiler)?;
+
+    let mut new_compiler = Compiler::new(compiler.src.clone(), compiler.symbolizer.clone(), compiler.scanner.clone());
+
+    let src = new_compiler.scanner.previous().src.clone();
+    declare_variable(&mut new_compiler, name.clone(), src)?;
+    mark_initialized(&mut new_compiler)?;
     let mut arity: usize = 0;
-    if !(check(compiler, TType::RIGHT_PAREN.id())) {
+    if !(check(&mut new_compiler, TType::RIGHT_PAREN.id())) {
         let mut first = true;
-        while matches(compiler, TType::COMMA.id())? || first {
+        while matches(&mut new_compiler, TType::COMMA.id())? || first {
             first = false;
             arity += 1;
-            let (_symbol, name_const) = parse_variable(compiler, "Expected a parameter name here")?;
-            define_variable(compiler, DefGlobal { idx: name_const.idx })?;
+            let (_symbol, name_const) = parse_variable(&mut new_compiler, "Expected a parameter name here")?;
+            define_variable(&mut new_compiler, DefGlobal { idx: name_const.idx })?;
         }
     }
     let arity: u8 = if arity >= (u8::MAX as usize) {
-        return Err(CompilerError::new(format!("Cannot have more than {} parameters", u8::MAX), compiler.parser.previous.src.clone()));
+        return Err(CompilerError::new(format!("Cannot have more than {} parameters", u8::MAX), compiler.scanner.previous().src.clone()));
     } else {
         arity as u8
     };
-    consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after parameters")?;
-    consume(compiler, TType::LEFT_BRACE.id(), "Expected '{' before function body")?;
-    block(compiler)?;
+    consume(&mut new_compiler, TType::RIGHT_PAREN.id(), "Expected ')' after parameters")?;
+    consume(&mut new_compiler, TType::LEFT_BRACE.id(), "Expected '{' before function body")?;
+    block(&mut new_compiler)?;
 
-    Nil {}.emit(compiler);
-    Ret {}.emit(compiler);
+    Nil {}.emit(&mut new_compiler);
+    Ret {}.emit(&mut new_compiler);
 
-    end_scope(compiler);
-    let _ = compiler.scopes.pop();
+    end_scope(&mut new_compiler);
+    let completed_chunk = new_compiler.chunk.clone();
 
-    swap(&mut compiler.current_chunk, &mut new_chunk);
-    swap(&mut compiler.locals, &mut locals);
-
-    let func_const = compiler.current_chunk.add_const(Value::Func(
+    let func_const = compiler.current_chunk().add_const(Value::Func(
         Func::new(name.clone(),
                   arity,
                   FuncType::Function,
-                  new_chunk,
+                  completed_chunk,
+                  0,
         )));
 
-
+    Closure { idx: func_const.idx }.emit(compiler);
+    // for up in up_values.iter() {
+    //     up.emit(compiler);
+    // }
     Ok(func_const)
 }
 
@@ -410,7 +434,7 @@ fn fun_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
     let (sym, name_const) = parse_variable(compiler, "Expected to find an identifier after a function")?;
     mark_initialized(compiler)?;
     let func_const = function(compiler, sym, can_assign)?;
-    func_const.emit(compiler);
+    // func_const.emit(compiler);
     define_variable(compiler, DefGlobal { idx: name_const.idx })?;
     Ok(())
 }
@@ -423,7 +447,7 @@ fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compiler
     } else {
         statement(compiler, can_assign)?;
     }
-    if compiler.parser.panic_mode {
+    if compiler.panic_mode {
         synchronize(compiler)?;
     }
     Ok(())
@@ -439,7 +463,7 @@ fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerEr
     } else if matches(compiler, TType::WHILE.id())? {
         while_statement(compiler, can_assign)
     } else if matches(compiler, TType::LEFT_BRACE.id())? {
-        begin_scope(compiler);
+        begin_scope(compiler, false);
         block(compiler)?;
         end_scope(compiler);
         Ok(())
@@ -459,10 +483,10 @@ fn or_(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     let end_jump = RelJump { idx: -1 };
     let else_write = else_jump.emit(compiler);
     let end_write = end_jump.emit(compiler);
-    else_jump.overwrite(&mut compiler.current_chunk, &else_write);
+    else_jump.overwrite(&mut compiler.current_chunk(), &else_write);
     Pop {}.emit(compiler);
     parse_precedence(compiler, Precedence::OR)?;
-    end_jump.overwrite(&mut compiler.current_chunk, &end_write);
+    end_jump.overwrite(&mut compiler.current_chunk(), &end_write);
     Ok(())
 }
 
@@ -494,12 +518,12 @@ fn print_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 }
 
 fn number(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
-    if let TType::NUMBER(num) = &compiler.parser.previous.kind {
-        emit_const(compiler, Value::Num(num.num), compiler.parser.previous.src.clone());
+    if let TType::NUMBER(num) = &compiler.scanner.previous().kind {
+        emit_const(compiler, Value::Num(num.num), compiler.scanner.previous().src.clone());
     } else {
         error_at_prev(
             compiler,
-            &format!("Expected to find a number but found a {}", &compiler.parser.previous.kind))
+            &format!("Expected to find a number but found a {}", &compiler.scanner.previous().kind))
             ?;
     }
     Ok(())
@@ -511,11 +535,11 @@ fn expression(compiler: &mut Compiler, _can_assign: bool) -> Result<(), Compiler
 }
 
 fn unary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
-    let typ = compiler.parser.previous.clone();
+    let typ = compiler.scanner.previous().clone();
     parse_precedence(compiler, Precedence::UNARY)?;
     match typ.kind {
-        TType::MINUS => Negate {}.write(&mut compiler.current_chunk, typ.src),
-        TType::BANG => Not {}.write(&mut compiler.current_chunk, typ.src),
+        TType::MINUS => Negate {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::BANG => Not {}.write(&mut compiler.current_chunk(), typ.src),
         _ => panic!("unreachable"),
     };
     Ok(())
@@ -524,12 +548,12 @@ fn unary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError
 fn emit_const(compiler: &mut Compiler, value: Value, src: SourceRef) {
     if let Value::Num(num) = value {
         if (0.0..255.0).contains(&num) {
-            SmallConst { val: num as u8 }.write(&mut compiler.current_chunk, src);
+            SmallConst { val: num as u8 }.write(&mut compiler.current_chunk(), src);
             return;
         }
     }
-    let con = compiler.current_chunk.add_const(value);
-    con.write(&mut compiler.current_chunk, src.clone());
+    let con = compiler.current_chunk().add_const(value);
+    con.write(&mut compiler.current_chunk(), src.clone());
 }
 
 fn argument_list(compiler: &mut Compiler) -> Result<u8, CompilerError> {
@@ -547,7 +571,7 @@ fn argument_list(compiler: &mut Compiler) -> Result<u8, CompilerError> {
         consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after arguments.")?;
     }
     if count > u8::MAX {
-        Err(CompilerError::new(format!("Cannot have more than {} arguments.", u8::MAX), compiler.parser.previous.src.clone()))
+        Err(CompilerError::new(format!("Cannot have more than {} arguments.", u8::MAX), compiler.scanner.previous().src.clone()))
     } else {
         Ok(count as u8)
     }
@@ -593,11 +617,11 @@ fn if_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compile
     if matches(compiler, TType::ELSE.id())? {
         let mut if_done_jump = RelJump { idx: -1 };
         let if_done_jump_write = if_done_jump.emit(compiler);
-        if_jump.overwrite(&mut compiler.current_chunk, &if_jump_write);
+        if_jump.overwrite(&mut compiler.current_chunk(), &if_jump_write);
         statement(compiler, can_assign)?;
-        if_done_jump.overwrite(&mut compiler.current_chunk, &if_done_jump_write);
+        if_done_jump.overwrite(&mut compiler.current_chunk(), &if_done_jump_write);
     } else {
-        if_jump.overwrite(&mut compiler.current_chunk, &if_jump_write);
+        if_jump.overwrite(&mut compiler.current_chunk(), &if_jump_write);
     }
     Ok(())
 }
@@ -610,7 +634,7 @@ fn if_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compile
 // jump :start
 // :done
 fn while_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    let loop_start = compiler.current_chunk.len() as i16;
+    let loop_start = compiler.current_chunk().len() as i16;
     consume(compiler, TType::LEFT_PAREN.id(), "Expected '(' after while.")?;
     expression(compiler, can_assign)?;
     consume(compiler, TType::RIGHT_PAREN.id(), "Expected ')' after while expression.")?;
@@ -618,34 +642,34 @@ fn while_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
     let exit_jump_write = exit_jump.emit(compiler);
     Pop {}.emit(compiler); // pop while loop expression
     statement(compiler, can_assign)?; // body
-    let jump_to_start = RelJump { idx: -((compiler.current_chunk.len() as i16) - loop_start) };
+    let jump_to_start = RelJump { idx: -((compiler.current_chunk().len() as i16) - loop_start) };
     jump_to_start.emit(compiler); // jump to :start
-    exit_jump.overwrite(&mut compiler.current_chunk, &exit_jump_write); // :done
+    exit_jump.overwrite(&mut compiler.current_chunk(), &exit_jump_write); // :done
     Pop {}.emit(compiler); // pop while loop expression
     Ok(())
 }
 
 fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
-    let typ = compiler.parser.previous.clone();
+    let typ = compiler.scanner.previous().clone();
     let rule = get_rule(&compiler.rules, &typ.kind);
     let prec: u8 = rule.precedence as u8;
     parse_precedence(compiler, (prec + 1).into())?;
     match typ.kind {
-        TType::PLUS => Add {}.write(&mut compiler.current_chunk, typ.src),
-        TType::MINUS => Sub {}.write(&mut compiler.current_chunk, typ.src),
-        TType::SLASH => Div {}.write(&mut compiler.current_chunk, typ.src),
-        TType::STAR => Mult {}.write(&mut compiler.current_chunk, typ.src),
-        TType::BANG_EQUAL => NotEqual {}.write(&mut compiler.current_chunk, typ.src),
-        TType::EQUAL_EQUAL => EqualEqual {}.write(&mut compiler.current_chunk, typ.src),
-        TType::LESS => Less {}.write(&mut compiler.current_chunk, typ.src),
-        TType::LESS_EQUAL => LessOrEq {}.write(&mut compiler.current_chunk, typ.src),
+        TType::PLUS => Add {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::MINUS => Sub {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::SLASH => Div {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::STAR => Mult {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::BANG_EQUAL => NotEqual {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::EQUAL_EQUAL => EqualEqual {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::LESS => Less {}.write(&mut compiler.current_chunk(), typ.src),
+        TType::LESS_EQUAL => LessOrEq {}.write(&mut compiler.current_chunk(), typ.src),
         TType::GREATER => {
-            LessOrEq {}.write(&mut compiler.current_chunk, typ.src.clone());
-            Not{}.write(&mut compiler.current_chunk, typ.src)
+            LessOrEq {}.write(&mut compiler.current_chunk(), typ.src.clone());
+            Not {}.write(&mut compiler.current_chunk(), typ.src)
         }
         TType::GREATER_EQUAL => {
-            Less {}.write(&mut compiler.current_chunk, typ.src.clone());
-            Not{}.write(&mut compiler.current_chunk, typ.src)
+            Less {}.write(&mut compiler.current_chunk(), typ.src.clone());
+            Not {}.write(&mut compiler.current_chunk(), typ.src)
         }
         _ => panic!("bad typ"),
     };
@@ -653,19 +677,19 @@ fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerErro
 }
 
 fn string(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
-    if let TType::STRING(str) = &compiler.parser.previous.kind {
+    if let TType::STRING(str) = &compiler.scanner.previous().kind {
         emit_const(compiler,
                    Value::String(str.clone()),
-                   compiler.parser.previous.src.clone());
+                   compiler.scanner.previous().src.clone());
         Ok(())
     } else {
-        Err(CompilerError::new(format!("Expected to find a string but found a {}", &compiler.parser.previous.kind),
-                               compiler.parser.previous.src.clone()))
+        Err(CompilerError::new(format!("Expected to find a string but found a {}", &compiler.scanner.previous().kind),
+                               compiler.scanner.previous().src.clone()))
     }
 }
 
 fn literal(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
-    match compiler.parser.previous.kind {
+    match compiler.scanner.previous().kind {
         TType::TRUE => True {}.emit(compiler),
         TType::FALSE => False {}.emit(compiler),
         TType::NIL => Nil {}.emit(compiler),
@@ -678,52 +702,59 @@ fn variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerErr
     named_variable(compiler, can_assign)
 }
 
-enum Resolution {
+#[derive(PartialEq, Debug)]
+pub enum Resolution {
     Local(u8),
+    Closed(u8),
     Global,
 }
 
-fn resolve_local(compiler: &mut Compiler, sym: &Symbol) -> Resolution {
-    for (i, local) in compiler.locals.iter().enumerate().rev() {
-        if local.name == *sym {
-            return Resolution::Local(i as u8);
+fn resolve_local(compiler: &mut Compiler, name: &Symbol) -> Resolution {
+    let mut flat: Vec<Local> = vec![];
+    for scope in compiler.scopes.iter() {
+        for local in scope.locals.iter() {
+            flat.push(local.clone())
+        }
+    }
+    for (idx, local) in flat.iter().enumerate().rev() {
+        if &local.name == name {
+            return Resolution::Local(idx as u8);
         }
     }
     Resolution::Global
 }
 
-fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    if let TType::IDENTIFIER(str) = &compiler.parser.previous.kind.clone() {
-        let prev = compiler.parser.previous.src.clone();
-        match resolve_local(compiler, str) {
-            Resolution::Local(local_idx) => {
-                if can_assign && matches(compiler, TType::EQUAL.id())? {
-                    expression(compiler, can_assign)?;
-                    SetLocal { idx: local_idx }.write(&mut compiler.current_chunk, prev);
-                } else {
-                    GetLocal { idx: local_idx }.write(&mut compiler.current_chunk, prev);
-                }
-            }
-            Resolution::Global => {
-                let const_ref = identifier_constant(str.clone(), &mut compiler.current_chunk)?;
-                if can_assign && matches(compiler, TType::EQUAL.id())? {
-                    expression(compiler, can_assign)?;
-                    SetGlobal { idx: const_ref.idx }.write(&mut compiler.current_chunk, prev);
-                } else {
-                    GetGlobal { idx: const_ref.idx }.write(&mut compiler.current_chunk, prev);
-                }
-            }
-        }
-
-
-        Ok(())
+fn get_or_set<Get: OpU8, Set: OpU8>(compiler: &mut Compiler, can_assign: bool, name: &Symbol, idx: u8) -> Result<(), CompilerError> {
+    if can_assign && matches(compiler, TType::EQUAL.id())? {
+        expression(compiler, can_assign)?;
+        Set::emit_u8(compiler, idx);
     } else {
-        panic!("compiler error");
+        Get::emit_u8(compiler, idx);
     }
+    Ok(())
+}
+
+fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
+    let name = if let TType::IDENTIFIER(str) = &compiler.scanner.previous().kind.clone() { str.clone() } else { panic!("Compiler error"); };
+    let prev = compiler.scanner.previous().src.clone();
+    match resolve_local(compiler, &name) {
+        Resolution::Local(local_idx) => {
+            get_or_set::<GetLocal, SetLocal>(compiler, can_assign, &name, local_idx)?;
+        }
+        Resolution::Closed(up_val_idx) => {
+            // add_up_value(compiler, up_val_idx, true);
+            // get_or_set::<GetUpValue, SetUpValue>(compiler, can_assign, &name, up_val_idx)?;
+        }
+        Resolution::Global => {
+            let const_ref = identifier_constant(name.clone(), &mut compiler.current_chunk())?;
+            get_or_set::<GetGlobal, SetGlobal>(compiler, can_assign, &name, const_ref.idx)?;
+        }
+    }
+    Ok(())
 }
 
 fn consume(compiler: &mut Compiler, typ: TTypeId, message: &str) -> Result<(), CompilerError> {
-    if compiler.parser.current.kind.id() == typ {
+    if compiler.scanner.current().kind.id() == typ {
         advance(compiler)?;
         return Ok(());
     }
@@ -735,10 +766,10 @@ fn get_rule<'a>(map: &'a HashMap<u32, Rule>, typ: &TType) -> &'a Rule {
 }
 
 fn advance(compiler: &mut Compiler) -> Result<(), CompilerError> {
-    swap(&mut compiler.parser.current, &mut compiler.parser.previous);
+    swap(&mut compiler.scanner.current(), &mut compiler.scanner.previous());
     loop {
-        compiler.parser.current = compiler.scanner.scan_token();
-        match &compiler.parser.current.kind.clone() {
+        compiler.scanner.scan_token();
+        match &compiler.scanner.current().kind.clone() {
             TType::ERROR(msg) => {
                 error_at_current(compiler, &format!("Scanner error: {}", msg))?;
             }
@@ -759,10 +790,10 @@ fn error_at_prev(compiler: &mut Compiler, message: &str) -> Result<(), CompilerE
 }
 
 fn error_at(compiler: &mut Compiler, message: &str, current: bool) -> Result<(), CompilerError> {
-    if compiler.parser.panic_mode {
+    if compiler.panic_mode {
         return Ok(());
     }
-    compiler.parser.panic_mode = true;
-    let src = if current { compiler.parser.current.src.clone() } else { compiler.parser.previous.src.clone() };
+    compiler.panic_mode = true;
+    let src = if current { compiler.scanner.current().src.clone() } else { compiler.scanner.previous().src.clone() };
     Err(CompilerError::new(message.to_string(), src))
 }

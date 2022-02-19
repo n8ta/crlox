@@ -1,9 +1,10 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use crate::func::Func;
 use crate::native_func::NativeFunc;
 use crate::Symbol;
+use crate::closure::RtClosure;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Value {
     Num(f64),
     Bool(bool),
@@ -11,6 +12,7 @@ pub enum Value {
     String(Symbol),
     Func(Func),
     Native(NativeFunc),
+    Closure(RtClosure),
 }
 
 impl Value {
@@ -22,6 +24,7 @@ impl Value {
             Value::String(_) => "string",
             Value::Func(_) => "fn",
             Value::Native(_) => "native fn",
+            Value::Closure(_) => "closure",
         }
     }
     pub fn truthy(&self) -> bool {
@@ -31,20 +34,27 @@ impl Value {
             Value::Bool(b) => *b,
             Value::Func(_) => true,
             Value::Native(_) => true,
+            Value::Closure(_) => true,
             _ => true,
         }
     }
 }
 
+impl Debug for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{}", self))
+    }
+}
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Num(n) => f.write_str(&format!("{}", n)),
             Value::Bool(b) => f.write_str(&format!("{}", b)),
-            Value::Nil => f.write_str("nil"),
-            Value::String(s) => f.write_str(&format!("str'{}'", s)),
-            Value::Func(lfn) => f.write_str(&format!("fn[{}]<{}>", lfn.arity, lfn.name)),
-            Value::Native(nfn) => f.write_str(&format!("native fn[{}]<{}>", nfn.arity(), nfn.name())),
+            Value::Nil => f.write_str("NIL"),
+            Value::String(s) => f.write_str(&format!("{}", s)),
+            Value::Func(lfn) => f.write_str(&format!("fn-{}[{}]", lfn.name, lfn.arity)),
+            Value::Native(nfn) => f.write_str(&format!("native-[{}]{}", nfn.name, nfn.arity)),
+            Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name, c.arity))
         }
     }
 }

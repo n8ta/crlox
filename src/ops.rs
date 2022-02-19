@@ -1,19 +1,26 @@
 use crate::{Chunk, Compiler, SourceRef};
 use crate::chunk::Write;
+use crate::func::Func;
+use crate::value::Value;
 
 
 pub trait OpJumpTrait {
     fn overwrite(&self, chunk: &mut Chunk, write: &Write);
 }
+
 pub trait OpTrait {
     const CODE: u8;
     const SIZE: usize;
     fn write(&self, code: &mut Chunk, src: SourceRef) -> Write;
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self);
     fn emit(&self, compiler: &mut Compiler) -> Write {
-        let prev = compiler.prev_source().clone();
-        self.write(&mut compiler.current_chunk, prev)
+        let prev = compiler.prev_source();
+        self.write(&mut compiler.current_chunk(), prev)
     }
+}
+
+pub trait OpU8 {
+    fn emit_u8(compiler: &mut Compiler, idx:u8 );
 }
 
 #[derive(Debug)]
@@ -244,6 +251,42 @@ pub struct GetGlobal {
     pub idx: u8,
 }
 
+impl OpU8 for GetGlobal {
+    fn emit_u8(compiler: &mut Compiler, idx: u8) {
+        GetGlobal { idx }.emit(compiler);
+    }
+}
+
+impl OpU8 for SetGlobal {
+    fn emit_u8(compiler: &mut Compiler, idx: u8) {
+        SetGlobal { idx }.emit(compiler);
+    }
+}
+
+impl OpU8 for SetLocal {
+    fn emit_u8(compiler: &mut Compiler, idx: u8) {
+        SetLocal { idx }.emit(compiler);
+    }
+}
+
+impl OpU8 for GetLocal {
+    fn emit_u8(compiler: &mut Compiler, idx: u8) {
+        GetLocal { idx }.emit(compiler);
+    }
+}
+
+impl OpU8 for SetUpValue {
+    fn emit_u8(compiler: &mut Compiler, idx: u8) {
+        SetUpValue { idx }.emit(compiler);
+    }
+}
+
+impl OpU8 for GetUpValue {
+    fn emit_u8(compiler: &mut Compiler, idx: u8) {
+        GetUpValue { idx }.emit(compiler);
+    }
+}
+
 impl OpTrait for GetGlobal {
     const CODE: u8 = 20;
     const SIZE: usize = 2;
@@ -312,6 +355,7 @@ impl OpTrait for RelJumpIfFalse {
         (2, RelJumpIfFalse { idx })
     }
 }
+
 impl OpJumpTrait for RelJumpIfFalse {
     fn overwrite(&self, chunk: &mut Chunk, write: &Write) {
         let offset: i64 = (chunk.len() - write.start) as i64;
@@ -340,6 +384,7 @@ impl OpTrait for RelJump {
         (2, RelJump { idx })
     }
 }
+
 impl OpJumpTrait for RelJump {
     fn overwrite(&self, chunk: &mut Chunk, write: &Write) {
         let offset: i64 = (chunk.len() - write.start) as i64;
@@ -382,6 +427,55 @@ impl OpTrait for SmallConst {
     }
 }
 
+pub struct Closure {
+    pub idx: u8,
+}
 
+impl OpTrait for Closure {
+    const CODE: u8 = 28;
+    const SIZE: usize = 2;
+
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE, self.idx], src.clone())
+    }
+
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        (1, Closure { idx: code[idx] })
+    }
+}
+
+pub struct GetUpValue {
+    pub idx: u8,
+}
+
+pub struct SetUpValue {
+   pub idx: u8
+}
+
+impl OpTrait for GetUpValue {
+    const CODE: u8 = 29;
+    const SIZE: usize = 2;
+
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE, self.idx], src.clone())
+    }
+
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        (1, GetUpValue { idx: code[idx] })
+    }
+}
+
+impl OpTrait for SetUpValue {
+    const CODE: u8 = 30;
+    const SIZE: usize = 2;
+
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE, self.idx], src.clone())
+    }
+
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        (1, SetUpValue { idx: code[idx] })
+    }
+}
 
 
