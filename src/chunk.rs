@@ -1,4 +1,4 @@
-use crate::ops::{OpTrait, SetUpValue, GetUpValue, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, SetGlobal, GetGlobal, DefGlobal, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst};
+use crate::ops::{OpTrait, SetUpValue, GetUpValue, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst};
 use crate::{debug_println, SourceRef};
 use crate::value::Value;
 
@@ -137,21 +137,21 @@ impl Chunk {
                 debug_println!("{} [{}] Pop", idx - 1, Pop::CODE);
                 Pop::SIZE
             }
-            DefGlobal::CODE => {
-                let (len, op) = DefGlobal::decode(&self.code, idx);
-                debug_println!("{} [{}] DefGlobal[{}]=>{}", idx - 1, DefGlobal::CODE, op.idx, self.constants[op.idx as usize]);
-                len + 1
-            }
-            GetGlobal::CODE => {
-                let (len, op) = GetGlobal::decode(&self.code, idx);
-                debug_println!("{} [{}] GetGlobal[{}]=>{}", idx - 1, GetGlobal::CODE, op.idx, self.constants[op.idx as usize]);
-                len + 1
-            }
-            SetGlobal::CODE => {
-                let (len, op) = SetGlobal::decode(&self.code, idx);
-                debug_println!("{} [{}] SetGlobal[{}]=>{}", idx - 1, SetGlobal::CODE, op.idx, self.constants[op.idx as usize]);
-                len + 1
-            }
+            // DefGlobal::CODE => {
+            //     let (len, op) = DefGlobal::decode(&self.code, idx);
+            //     debug_println!("{} [{}] DefGlobal[{}]=>{}", idx - 1, DefGlobal::CODE, op.idx, self.constants[op.idx as usize]);
+            //     len + 1
+            // }
+            // GetGlobal::CODE => {
+            //     let (len, op) = GetGlobal::decode(&self.code, idx);
+            //     debug_println!("{} [{}] GetGlobal[{}]=>{}", idx - 1, GetGlobal::CODE, op.idx, self.constants[op.idx as usize]);
+            //     len + 1
+            // }
+            // SetGlobal::CODE => {
+            //     let (len, op) = SetGlobal::decode(&self.code, idx);
+            //     debug_println!("{} [{}] SetGlobal[{}]=>{}", idx - 1, SetGlobal::CODE, op.idx, self.constants[op.idx as usize]);
+            //     len + 1
+            // }
             GetLocal::CODE => {
                 let (len, op) = GetLocal::decode(&self.code, idx);
                 debug_println!("{} [{}] GetLocal[{}]", idx - 1, GetLocal::CODE, op.idx);

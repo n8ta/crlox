@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
-use crate::{Chunk, Symbol};
 use crate::func::Func;
 use crate::value::Value;
 

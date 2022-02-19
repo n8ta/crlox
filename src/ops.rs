@@ -1,7 +1,5 @@
 use crate::{Chunk, Compiler, SourceRef};
 use crate::chunk::Write;
-use crate::func::Func;
-use crate::value::Value;
 
 
 pub trait OpJumpTrait {
@@ -62,7 +60,7 @@ impl OpTrait for Negate {
         code.add_byte(Self::CODE, src)
     }
 
-    fn decode(_code: &Vec<u8>, idx: usize) -> (usize, Self) { (0, Negate {}) }
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Negate {}) }
 }
 
 #[derive(Debug)]
@@ -234,34 +232,34 @@ impl OpTrait for Pop {
     fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) { (0, Pop {}) }
 }
 
-pub struct DefGlobal {
-    pub idx: u8,
-}
+// pub struct DefGlobal {
+//     pub idx: u8,
+// }
+//
+// impl OpTrait for DefGlobal {
+//     const CODE: u8 = 19;
+//     const SIZE: usize = 2;
+//     fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+//         code.add_bytes(&[Self::CODE, self.idx], src.clone())
+//     }
+//     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, DefGlobal { idx: code[idx] }) }
+// }
 
-impl OpTrait for DefGlobal {
-    const CODE: u8 = 19;
-    const SIZE: usize = 2;
-    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
-        code.add_bytes(&[Self::CODE, self.idx], src.clone())
-    }
-    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, DefGlobal { idx: code[idx] }) }
-}
-
-pub struct GetGlobal {
-    pub idx: u8,
-}
-
-impl OpU8 for GetGlobal {
-    fn emit_u8(compiler: &mut Compiler, idx: u8) {
-        GetGlobal { idx }.emit(compiler);
-    }
-}
-
-impl OpU8 for SetGlobal {
-    fn emit_u8(compiler: &mut Compiler, idx: u8) {
-        SetGlobal { idx }.emit(compiler);
-    }
-}
+// pub struct GetGlobal {
+//     pub idx: u8,
+// }
+//
+// impl OpU8 for GetGlobal {
+//     fn emit_u8(compiler: &mut Compiler, idx: u8) {
+//         GetGlobal { idx }.emit(compiler);
+//     }
+// }
+//
+// impl OpU8 for SetGlobal {
+//     fn emit_u8(compiler: &mut Compiler, idx: u8) {
+//         SetGlobal { idx }.emit(compiler);
+//     }
+// }
 
 impl OpU8 for SetLocal {
     fn emit_u8(compiler: &mut Compiler, idx: u8) {
@@ -287,28 +285,28 @@ impl OpU8 for GetUpValue {
     }
 }
 
-impl OpTrait for GetGlobal {
-    const CODE: u8 = 20;
-    const SIZE: usize = 2;
-    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
-        code.add_bytes(&[Self::CODE, self.idx], src.clone())
-    }
-    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, GetGlobal { idx: code[idx] }) }
-}
-
-
-pub struct SetGlobal {
-    pub idx: u8,
-}
-
-impl OpTrait for SetGlobal {
-    const CODE: u8 = 21;
-    const SIZE: usize = 2;
-    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
-        code.add_bytes(&[Self::CODE, self.idx], src.clone())
-    }
-    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, SetGlobal { idx: code[idx] }) }
-}
+// impl OpTrait for GetGlobal {
+//     const CODE: u8 = 20;
+//     const SIZE: usize = 2;
+//     fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+//         code.add_bytes(&[Self::CODE, self.idx], src.clone())
+//     }
+//     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, GetGlobal { idx: code[idx] }) }
+// }
+//
+//
+// pub struct SetGlobal {
+//     pub idx: u8,
+// }
+//
+// impl OpTrait for SetGlobal {
+//     const CODE: u8 = 21;
+//     const SIZE: usize = 2;
+//     fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+//         code.add_bytes(&[Self::CODE, self.idx], src.clone())
+//     }
+//     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (1, SetGlobal { idx: code[idx] }) }
+// }
 
 pub struct GetLocal {
     pub idx: u8,

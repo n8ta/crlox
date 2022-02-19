@@ -1,7 +1,8 @@
+use std::cmp::{max, min};
 use std::rc::Rc;
 use std::fmt::{Debug, Display, Formatter};
 use colored::*;
-use std::cmp::{min, max};
+
 #[derive(Clone, PartialOrd, PartialEq, Ord, Eq, Debug)]
 pub struct Source {
     pub src: String,
@@ -76,6 +77,7 @@ impl SourceRef {
     pub fn new(offset: usize, len: usize, line: usize, src: Rc<Source>) -> SourceRef {
         SourceRef { offset, len, src, line }
     }
+    #[allow(dead_code)]
     pub fn merge(&self, other: &SourceRef) -> SourceRef {
         let start = min(self.offset, other.offset);
         let end = max(self.offset + self.len, other.offset + other.len);

@@ -1,6 +1,5 @@
 use std::io::Read;
 use std::process::exit;
-use std::rc::Rc;
 use crate::chunk::Chunk;
 use crate::source_ref::SourceRef;
 use crate::vm::{VM};
@@ -21,6 +20,7 @@ mod e2e_tests;
 mod native_func;
 mod debug;
 mod closure;
+mod resolver;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

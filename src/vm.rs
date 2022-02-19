@@ -2,16 +2,13 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
 use std::rc::Rc;
-use std::slice::from_raw_parts;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::ops::{EqualEqual, SetUpValue, GetUpValue, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, DefGlobal, GetGlobal, SetGlobal, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure};
+use crate::ops::{EqualEqual, SetUpValue, GetUpValue, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure};
 use crate::value::Value;
 use crate::ops::OpTrait;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
 use crate::func::Func;
 use crate::native_func::NativeFunc;
-use crate::scanner::TType::PRINT;
-use crate::vm::InterpErrorType::CompilerError;
 
 #[derive(Debug)]
 pub enum InterpErrorType {
@@ -53,11 +50,10 @@ impl InterpError {
     }
 }
 
-static MAX_LOCALS: usize = 255;
-static MAX_STACK_SIZE: usize = 255;
+// static MAX_LOCALS: usize = 255;
+// static MAX_STACK_SIZE: usize = 255;
 
 pub struct VM {
-    stack_idx: usize,
     stack: Vec<Value>,
     globals: HashMap<Symbol, Value>,
     symbolizer: Symbolizer,
@@ -76,7 +72,6 @@ impl VM {
         let mut vm = VM {
             symbolizer,
             stack: vec![],
-            stack_idx: 0,
             globals: HashMap::new(),
             frames: vec![],
             frame: CallFrame {
@@ -119,7 +114,7 @@ impl VM {
             None => {
                 let ip = self.frame.ip;
                 let src: Option<SourceRef> = self.frame.closure.chunk.get_source(ip).and_then(|f| Some(f.clone()));
-                panic!("Tried to pop a value from the stack but it was empty!")
+                Err(InterpError::compile(src, "Tried to pop a value from the stack but it was empty!, src".to_string()))
             }
             Some(val) => {
                 debug_println!("<== Popping {:?}", &val);
@@ -250,15 +245,15 @@ impl VM {
                     self.pop()?;
                     self.bump_ip();
                 }
-                DefGlobal::CODE => {
-                    self.def_global()?;
-                }
-                GetGlobal::CODE => {
-                    self.get_global()?;
-                }
-                SetGlobal::CODE => {
-                    self.set_global()?;
-                }
+                // DefGlobal::CODE => {
+                //     self.def_global()?;
+                // }
+                // GetGlobal::CODE => {
+                //     self.get_global()?;
+                // }
+                // SetGlobal::CODE => {
+                //     self.set_global()?;
+                // }
                 GetLocal::CODE => {
                     self.get_local()?;
                 }
@@ -280,33 +275,33 @@ impl VM {
                 Closure::CODE => {
                     self.closure()?;
                 }
-                GetUpValue::CODE => {
-                    self.get_up_value()?;
-                }
-                SetUpValue::CODE => {
-                    self.set_up_value()?;
-                }
+                // GetUpValue::CODE => {
+                //     self.get_up_value()?;
+                // }
+                // SetUpValue::CODE => {
+                //     self.set_up_value()?;
+                // }
                 _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))
             };
         }
     }
 
-    fn set_up_value(&mut self) -> Result<(), InterpError> {
-        let (_len, op) = SetUpValue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        self.offset_ip_pos(2);
-        self.frame.closure.upvalues[op.idx as usize] = Rc::new(self.peek().clone());
-        Ok(())
-    }
-
-    fn get_up_value(&mut self) -> Result<(), InterpError> {
-        let (_len, op) = GetUpValue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        self.push((*self.frame.closure.upvalues[op.idx as usize].clone()).clone());
-        self.offset_ip_pos(2);
-        Ok(())
-    }
-    fn upvalue(&mut self) -> Result<(), InterpError> {
-        Ok(())
-    }
+    // fn set_up_value(&mut self) -> Result<(), InterpError> {
+    //     let (_len, op) = SetUpValue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+    //     self.offset_ip_pos(2);
+    //     // self.frame.closure.upvalues[op.idx as usize] = Rc::new(self.peek().clone());
+    //     Ok(())
+    // }
+    //
+    // fn get_up_value(&mut self) -> Result<(), InterpError> {
+    //     let (_len, op) = GetUpValue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+    //     self.push((*self.frame.closure.upvalues[op.idx as usize].clone()).clone());
+    //     self.offset_ip_pos(2);
+    //     Ok(())
+    // }
+    // fn upvalue(&mut self) -> Result<(), InterpError> {
+    //     Ok(())
+    // }
 
     fn closure(&mut self) -> Result<(), InterpError> {
         let (len, op) = Closure::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
@@ -315,20 +310,10 @@ impl VM {
             let mut closure = crate::closure::RtClosure::new(f.clone());
 
             let base = self.frame.ip + 2;
-            debug_println!("Function {} has {} upvalues", f.name, f.upvalues);
+            debug_println!("Function {}", f.name);
 
-            for i in 0..f.upvalues {
-                let idx = self.frame.closure.func.chunk.code[base + (i * 2)];
-                let is_local = self.frame.closure.func.chunk.code[base + (i * 2) + 1] == 1;
-                if is_local {
-                    closure.upvalues.push(Rc::new(self.peek_at(idx)?));
-                } else {
-                    // todo: non-local upvalues
-                    panic!("not done yet")
-                }
-            }
             self.push(Value::Closure(closure));
-            self.offset_ip_pos(len + 1 + f.upvalues * 2);
+            self.offset_ip_pos(len + 1);
             Ok(())
         } else {
             panic!("Compile error: While making a closure expected a function on the stack but found a {}", func.tname())
@@ -382,60 +367,60 @@ impl VM {
         Ok(())
     }
 
-    fn set_global(&mut self) -> Result<(), InterpError> {
-        let (_, set_global) = SetGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        let global_name = self.frame.closure.chunk.constants.get(set_global.idx as usize).expect("Compiler error, bad index in get global op");
-        let global_name = if let Value::String(global_name_sym) = global_name {
-            global_name_sym.clone()
-        } else { panic!("Compiler error, non-string constant passed to GetGlobal"); };
-
-        let new_val = self.peek();
-        if self.globals.contains_key(&global_name) {
-            self.globals.insert(global_name.clone(), new_val.clone());
-        } else {
-            return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
-                                            format!("Cannot assign to global variable {} since it has not been declared", global_name)));
-        }
-        self.offset_ip_pos(2);
-        Ok(())
-    }
-
-    fn get_global(&mut self) -> Result<(), InterpError> {
-        let (_, get_global) = GetGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        let global_idx = get_global.idx as usize;
-        let global_name = self.frame.closure.chunk.constants.get(global_idx).expect("Compiler error, bad index in get global op");
-        let global_name = if let Value::String(global_name) = global_name {
-            debug_println!("Getting global {}", global_name);
-            global_name.clone()
-        } else {
-            panic!("Compiler error, non-string constant passed to GetGlobal");
-        };
-        match self.globals.get(&global_name) {
-            None => return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
-                                                    format!("Global variable {} not found", global_name))),
-            Some(v) => {
-                debug_println!("\tGlobal is {}", v);
-                self.push(v.clone())
-            }
-        }
-        self.offset_ip_pos(2);
-        Ok(())
-    }
-
-    fn def_global(&mut self) -> Result<(), InterpError> {
-        let (_, def_global) = DefGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        let popped = self.pop()?;
-        let global_name = self.frame.closure.chunk.constants.get(def_global.idx as usize).unwrap();
-        debug_println!("Defining global '{}' as '{}'", global_name, popped);
-        let sym = if let Value::String(sym) = global_name {
-            sym.clone()
-        } else {
-            panic!("Compiler error, non-string constant passed to DefGlobal");
-        };
-        self.globals.insert(sym, popped);
-        self.offset_ip_pos(2);
-        Ok(())
-    }
+    // fn set_global(&mut self) -> Result<(), InterpError> {
+    //     let (_, set_global) = SetGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+    //     let global_name = self.frame.closure.chunk.constants.get(set_global.idx as usize).expect("Compiler error, bad index in get global op");
+    //     let global_name = if let Value::String(global_name_sym) = global_name {
+    //         global_name_sym.clone()
+    //     } else { panic!("Compiler error, non-string constant passed to GetGlobal"); };
+    //
+    //     let new_val = self.peek();
+    //     if self.globals.contains_key(&global_name) {
+    //         self.globals.insert(global_name.clone(), new_val.clone());
+    //     } else {
+    //         return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
+    //                                         format!("Cannot assign to global variable {} since it has not been declared", global_name)));
+    //     }
+    //     self.offset_ip_pos(2);
+    //     Ok(())
+    // }
+    //
+    // fn get_global(&mut self) -> Result<(), InterpError> {
+    //     let (_, get_global) = GetGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+    //     let global_idx = get_global.idx as usize;
+    //     let global_name = self.frame.closure.chunk.constants.get(global_idx).expect("Compiler error, bad index in get global op");
+    //     let global_name = if let Value::String(global_name) = global_name {
+    //         debug_println!("Getting global {}", global_name);
+    //         global_name.clone()
+    //     } else {
+    //         panic!("Compiler error, non-string constant passed to GetGlobal");
+    //     };
+    //     match self.globals.get(&global_name) {
+    //         None => return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
+    //                                                 format!("Global variable {} not found", global_name))),
+    //         Some(v) => {
+    //             debug_println!("\tGlobal is {}", v);
+    //             self.push(v.clone())
+    //         }
+    //     }
+    //     self.offset_ip_pos(2);
+    //     Ok(())
+    // }
+    //
+    // fn def_global(&mut self) -> Result<(), InterpError> {
+    //     let (_, def_global) = DefGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+    //     let popped = self.pop()?;
+    //     let global_name = self.frame.closure.chunk.constants.get(def_global.idx as usize).unwrap();
+    //     debug_println!("Defining global '{}' as '{}'", global_name, popped);
+    //     let sym = if let Value::String(sym) = global_name {
+    //         sym.clone()
+    //     } else {
+    //         panic!("Compiler error, non-string constant passed to DefGlobal");
+    //     };
+    //     self.globals.insert(sym, popped);
+    //     self.offset_ip_pos(2);
+    //     Ok(())
+    // }
 
     fn load_const(&mut self) -> Result<(), InterpError> {
         let (_, con) = Const::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
@@ -465,7 +450,7 @@ impl VM {
         let res = match (&a, &b) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a + b),
             (Value::String(str1), Value::String(str2)) => {
-                let mut new_str = format!("{}{}", str1.to_str(), str2.to_str());
+                let new_str = format!("{}{}", str1.to_str(), str2.to_str());
                 Value::String(self.symbolizer.get_symbol(new_str))
             }
             _ => return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
