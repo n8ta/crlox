@@ -1,4 +1,4 @@
-use crate::{SourceRef, Symbol, Symbolizer};
+use crate::{SourceRef, Symbol};
 use crate::compiler::CompilerError;
 
 #[derive(Debug, Clone)]
@@ -95,6 +95,7 @@ impl Resolver {
 
 #[test]
 fn scopes() {
+    use crate::Symbolizer;
     let src = || { SourceRef::simple() };
     let mut symbolizer = Symbolizer::new();
     let a = symbolizer.get_symbol("a".to_string());

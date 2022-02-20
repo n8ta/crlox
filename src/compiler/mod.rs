@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+mod rules;
+
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
+use std::process::exit;
 use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call, SmallConst, Closure, OpU8};
-use crate::scanner::{IDENTIFIER_TTYPE_ID, Num, Scanner, STRING_TTYPE_ID, TType, TTypeId};
+use crate::scanner::{IDENTIFIER_TTYPE_ID, Scanner, TType, TTypeId};
 use crate::{Chunk, SourceRef, Symbol};
 use crate::chunk::Write;
+use crate::compiler::rules::{Precedence, Rules};
 use crate::func::{Func, FuncType};
 use crate::resolver::{Resolution, Resolver};
 use crate::symbolizer::Symbolizer;
@@ -25,76 +28,18 @@ impl Display for CompilerError {
     }
 }
 
-#[repr(u8)]
-#[derive(Clone, Copy, PartialOrd, PartialEq)]
-enum Precedence {
-    NONE = 0,
-    ASSIGNMENT = 1,
-    // =
-    OR = 2,
-    // or
-    AND = 3,
-    // and
-    EQUALITY = 4,
-    // == !=
-    COMPARISON = 5,
-    // < > <= >=
-    TERM = 6,
-    // + -
-    FACTOR = 7,
-    // * /
-    UNARY = 8,
-    // ! -
-    CALL = 9,
-    // . ()
-    PRIMARY = 10,
-    MAX = 11,
-}
-
-impl From<u8> for Precedence {
-    fn from(num: u8) -> Self {
-        match num {
-            0 => Precedence::NONE,
-            1 => Precedence::ASSIGNMENT,
-            2 => Precedence::OR,
-            3 => Precedence::AND,
-            4 => Precedence::EQUALITY,
-            5 => Precedence::COMPARISON,
-            6 => Precedence::TERM,
-            7 => Precedence::FACTOR,
-            8 => Precedence::UNARY,
-            9 => Precedence::CALL,
-            10 => Precedence::PRIMARY,
-            _ => Precedence::MAX,
-        }
-    }
-}
 
 pub struct Compiler {
     src: String,
     pub chunk: Chunk,
     resolver: Resolver,
-    rules: HashMap<TTypeId, Rule>,
+    rules: Rules,
     scanner: Scanner,
     symbolizer: Symbolizer,
     // enclosing: Option<Box<Compiler>>,
     panic_mode: bool,
     had_error: Option<CompilerError>,
 }
-
-// #[derive(PartialEq, PartialOrd, Clone)]
-// pub struct UpValue {
-//     pub index: u8,
-//     pub is_local: bool,
-// }
-
-// impl UpValue {
-//     fn emit(&self, compiler: &mut Compiler) {
-//         let prev = compiler.prev_source().clone();
-//         compiler.current_chunk().add_byte(self.index, prev.clone());
-//         compiler.current_chunk().add_byte(if self.is_local { 1 } else { 0 }, prev);
-//     }
-// }
 
 impl Compiler {
     pub fn prev_source(&self) -> SourceRef {
@@ -113,49 +58,6 @@ impl Compiler {
         &mut self.chunk
     }
     fn new(src: String, symbolizer: Symbolizer, scanner: Scanner) -> Compiler {
-        let mut rules = HashMap::new();
-        {
-            rules.insert(TType::LeftParen.id(), Rule::new(Some(grouping), Some(call), Precedence::CALL));
-            rules.insert(TType::RightParen.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::LeftBrace.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::RightBrace.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Comma.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Dot.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Minus.id(), Rule::new(Some(unary), Some(binary), Precedence::TERM));
-            rules.insert(TType::Plus.id(), Rule::new(None, Some(binary), Precedence::TERM));
-            rules.insert(TType::Semicolon.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Slash.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
-            rules.insert(TType::Star.id(), Rule::new(None, Some(binary), Precedence::FACTOR));
-            rules.insert(TType::Bang.id(), Rule::new(Some(unary), None, Precedence::NONE));
-            rules.insert(TType::BangEq.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
-            rules.insert(TType::Eq.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::EqEq.id(), Rule::new(None, Some(binary), Precedence::EQUALITY));
-            rules.insert(TType::Greater.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::GreaterEq.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::Less.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(TType::LessEq.id(), Rule::new(None, Some(binary), Precedence::COMPARISON));
-            rules.insert(IDENTIFIER_TTYPE_ID, Rule::new(Some(variable), None, Precedence::NONE));
-            rules.insert(STRING_TTYPE_ID, Rule::new(Some(string), None, Precedence::NONE));
-            rules.insert(TType::Number(Num { num: 0.0 }).id(), Rule::new(Some(number), None, Precedence::NONE));
-            rules.insert(TType::Class.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Else.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::False.id(), Rule::new(Some(literal), None, Precedence::NONE));
-            rules.insert(TType::For.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Fun.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::If.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Nil.id(), Rule::new(Some(literal), None, Precedence::NONE));
-            rules.insert(TType::Or.id(), Rule::new(None, Some(or_), Precedence::NONE));
-            rules.insert(TType::And.id(), Rule::new(None, Some(and_), Precedence::NONE));
-            rules.insert(TType::Print.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Return.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Super.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::This.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::True.id(), Rule::new(Some(literal), None, Precedence::NONE));
-            rules.insert(TType::Var.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::While.id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::Error(format!("")).id(), Rule::new(None, None, Precedence::NONE));
-            rules.insert(TType::EOF.id(), Rule::new(None, None, Precedence::NONE));
-        }
         Compiler {
             src,
             chunk: Chunk::new(),
@@ -163,7 +65,7 @@ impl Compiler {
             panic_mode: false,
             had_error: None,
             symbolizer,
-            rules,
+            rules: Rules::new(),
             // enclosing: None,
             resolver: Resolver::new(),
         }
@@ -180,18 +82,6 @@ impl Compiler {
         }
         Ok(())
     }
-}
-
-type CompilerFnTy = fn(&mut Compiler, bool) -> Result<(), CompilerError>;
-
-struct Rule {
-    prefix: Option<CompilerFnTy>,
-    infix: Option<CompilerFnTy>,
-    precedence: Precedence,
-}
-
-impl Rule {
-    fn new(prefix: Option<CompilerFnTy>, infix: Option<CompilerFnTy>, precedence: Precedence) -> Rule { Rule { prefix, infix, precedence } }
 }
 
 fn synchronize(compiler: &mut Compiler) -> Result<(), CompilerError> {
@@ -233,21 +123,20 @@ fn end_scope(compiler: &mut Compiler) {
 
 fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), CompilerError> {
     advance(compiler)?;
-    let prefix_rule = get_rule(&compiler.rules, &compiler.scanner.previous().kind); // todo: error?
+    let prefix_rule = compiler.rules.get_rule(&compiler.scanner.previous().kind); // todo: error?
     let prefix_rule = if let Some(func) = prefix_rule.prefix {
         func
     } else {
         let msg = format!("Unexpected token: {}", compiler.scanner.previous().kind);
-        return error_at_prev(compiler,
-                             &msg);
+        return error_at_prev(compiler, &msg);
     };
 
     let can_assign = prec <= Precedence::ASSIGNMENT;
     prefix_rule(compiler, can_assign)?;
 
-    while (prec as u8) <= (get_rule(&compiler.rules, &compiler.scanner.current().kind).precedence as u8) {
+    while (prec as u8) <= (compiler.rules.get_rule(&compiler.scanner.current().kind).precedence as u8) {
         advance(compiler)?;
-        let infix = get_rule(&compiler.rules, &compiler.scanner.previous().kind).infix.expect("No infix for this rule");
+        let infix = compiler.rules.get_rule(&compiler.scanner.previous().kind).infix.expect("No infix for this rule");
         infix(compiler, false)?;
     }
 
@@ -300,7 +189,7 @@ fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 }
 
 
-fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<Const, CompilerError> {
+fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<(), CompilerError> {
     consume(compiler, TType::LeftParen.id(), "Expected '(' after function name")?;
 
     let mut new_compiler = Compiler::new(compiler.src.clone(), compiler.symbolizer.clone(), compiler.scanner.clone());
@@ -342,16 +231,13 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
         )));
 
     Closure { idx: func_const.idx }.emit(compiler);
-    // for up in up_values.iter() {
-    //     up.emit(compiler);
-    // }
-    Ok(func_const)
+    Ok(())
 }
 
 fn fun_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     let (sym, _name_const) = parse_variable(compiler, "Expected to find an identifier after a function")?;
     compiler.resolver.mark_initialized(sym.clone(), compiler.scanner.previous().src.clone())?;
-    let func_const = function(compiler, sym, can_assign)?;
+    function(compiler, sym, can_assign)?;
     // func_const.emit(compiler);
     // define_variable(compiler, DefGlobal { idx: name_const.idx })?;
     Ok(())
@@ -380,6 +266,8 @@ fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerEr
         if_statement(compiler, can_assign)
     } else if matches(compiler, TType::While.id())? {
         while_statement(compiler, can_assign)
+    } else if matches(compiler, TType::For.id())? {
+        for_statement(compiler, can_assign)
     } else if matches(compiler, TType::LeftBrace.id())? {
         begin_scope(compiler);
         block(compiler)?;
@@ -390,9 +278,64 @@ fn statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerEr
     }
 }
 
+fn for_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError>  {
+    begin_scope(compiler);
+    consume(compiler, TType::LeftParen.id(), "Expected a '(' after a 'for'")?;
+
+    // init
+    consume(compiler, TType::Var.id(), "Expected a variable declaration 'var' at start of for loop")?;
+    var_declaration(compiler, can_assign);
+
+    let test_target = compiler.current_chunk().len();
+
+    // test
+    expression(compiler, false);
+    consume(compiler, TType::Semicolon.id(), "Expected a ';' after for loop test condition")?;
+
+    let test_jump_to_end = RelJumpIfFalse{idx:-1};
+    let test_jump_to_end_write = test_jump_to_end.emit(compiler);
+
+    Pop{}.emit(compiler);
+    let from_test_to_body = RelJump{idx:-1};
+    let from_test_to_body_write = from_test_to_body.emit(compiler);
+
+
+    // increment
+    let incr_target = compiler.current_chunk().len() as i16;
+    expression(compiler, true)?;
+    Pop{}.emit(compiler);
+
+    // Jump from incr to test
+    RelJump{idx: ((test_target as i16) - compiler.current_chunk().len() as i16)}.emit(compiler);
+
+    consume(compiler, TType::RightParen.id(), "Expected a ')' after a 'for' init, condition, increment")?;
+
+    // body
+    // test_to_body should jump right here before the body
+    from_test_to_body.overwrite(compiler.current_chunk(), &from_test_to_body_write);
+    consume(compiler, TType::LeftBrace.id(), "Expected a '}' after a 'for ()'")?;
+    block(compiler);
+
+    // jump to incr after body
+    RelJump{idx: incr_target - (compiler.current_chunk().len() as i16) }.emit(compiler);
+    Pop{}.emit(compiler);
+
+    // test jump_to end jumps here, the end
+    test_jump_to_end.overwrite(compiler.current_chunk(), &test_jump_to_end_write);
+
+
+    end_scope(compiler);
+    Ok(())
+
+}
+
 fn and_(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
-    let _jf = RelJumpIfFalse { idx: -1 };
+    // FIRST
+    let jf = RelJumpIfFalse { idx: -1 };
+    let jf_write = jf.emit(compiler);
     Pop {}.emit(compiler);
+    parse_precedence(compiler, Precedence::AND);
+    jf.overwrite(&mut compiler.current_chunk(), &jf_write);
     Ok(())
 }
 
@@ -569,7 +512,7 @@ fn while_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 
 fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     let typ = compiler.scanner.previous().clone();
-    let rule = get_rule(&compiler.rules, &typ.kind);
+    let rule = compiler.rules.get_rule(&typ.kind);
     let prec: u8 = rule.precedence as u8;
     parse_precedence(compiler, (prec + 1).into())?;
     match typ.kind {
@@ -651,12 +594,9 @@ fn consume(compiler: &mut Compiler, typ: TTypeId, message: &str) -> Result<(), C
         advance(compiler)?;
         return Ok(());
     }
-    error_at_current(compiler, message)
+    error_at_current(compiler, &format!("{}, found a {}", message, compiler.scanner.current().kind))
 }
 
-fn get_rule<'a>(map: &'a HashMap<u32, Rule>, typ: &TType) -> &'a Rule {
-    map.get(&typ.id()).unwrap()
-}
 
 fn advance(compiler: &mut Compiler) -> Result<(), CompilerError> {
     swap(&mut compiler.scanner.current(), &mut compiler.scanner.previous());

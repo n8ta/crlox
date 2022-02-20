@@ -1,5 +1,7 @@
 print true or (1 + "str");
 print false and (1 + "str");
 print true or (true or true);
-print "hi" or 2; // "hi".
-print nil or "yes"; // "yes".
+print "hi" or 2;
+print nil or "yes";
+print 1 and 2;
+print 2 and 1;

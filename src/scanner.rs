@@ -86,6 +86,7 @@ pub enum TType {
 
 pub const IDENTIFIER_TTYPE_ID: TTypeId = 19;
 pub const STRING_TTYPE_ID: TTypeId = 20;
+pub const ERROR_TTYPE_ID: TTypeId = 38;
 
 impl Display for TType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -220,7 +221,7 @@ impl TType {
             TType::True => 35,
             TType::Var => 36,
             TType::While => 37,
-            TType::Error(_) => 38,
+            TType::Error(_) => ERROR_TTYPE_ID,
             TType::EOF => 39,
         }
     }
@@ -295,6 +296,9 @@ impl ScannerInner {
             keywords.insert("fun".as_bytes(), TType::Fun);
             keywords.insert("RETURN".as_bytes(), TType::Return);
             keywords.insert("return".as_bytes(), TType::Return);
+            keywords.insert("FOR".as_bytes(), TType::For);
+            keywords.insert("for".as_bytes(), TType::For);
+
         }
         ScannerInner {
             keywords,

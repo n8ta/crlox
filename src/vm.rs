@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
-use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::ops::{EqualEqual, SetUpValue, GetUpValue, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure};
+use crate::ops::{EqualEqual, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure};
 use crate::value::Value;
 use crate::ops::OpTrait;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
@@ -307,9 +306,8 @@ impl VM {
         let (len, op) = Closure::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
         let func = &self.frame.closure.func.chunk.constants[op.idx as usize];
         if let Value::Func(f) = func {
-            let mut closure = crate::closure::RtClosure::new(f.clone());
+            let closure = crate::closure::RtClosure::new(f.clone());
 
-            let base = self.frame.ip + 2;
             debug_println!("Function {}", f.name);
 
             self.push(Value::Closure(closure));

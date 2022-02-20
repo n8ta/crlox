@@ -30,6 +30,9 @@ fn main() {
         println!("Usage: ./rclox [source_file.lox]");
         exit(-1);
     };
+    let dump_bytecode = if let Some(flag) = args.get(2) {
+        flag == "--dump"
+    } else { false };
 
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -56,7 +59,10 @@ fn main() {
         },
     };
 
-    func.chunk.disassemble();
+    if dump_bytecode {
+        func.chunk.disassemble();
+        return;
+    }
 
     let res = VM::interpret(func, symbolizer.clone());
     match res {

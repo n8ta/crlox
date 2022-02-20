@@ -1,4 +1,4 @@
-use crate::ops::{OpTrait, SetUpValue, GetUpValue, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst};
+use crate::ops::{OpTrait, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst};
 use crate::{debug_println, SourceRef};
 use crate::value::Value;
 
@@ -69,8 +69,8 @@ impl Chunk {
         match *byte {
             Const::CODE => {
                 let const_idx = self.code[idx] as usize;
-                let const_val = self.constants[const_idx].clone();
-                debug_println!("{} [{}] Const[{}]{}", idx - 1, Const::CODE, const_idx, const_val);
+                let _const_val = self.constants[const_idx].clone();
+                debug_println!("{} [{}] Const[{}]{}", idx - 1, Const::CODE, const_idx, _const_val);
                 Const::SIZE
             }
             Ret::CODE => {
@@ -153,33 +153,33 @@ impl Chunk {
             //     len + 1
             // }
             GetLocal::CODE => {
-                let (len, op) = GetLocal::decode(&self.code, idx);
-                debug_println!("{} [{}] GetLocal[{}]", idx - 1, GetLocal::CODE, op.idx);
+                let (len, _op) = GetLocal::decode(&self.code, idx);
+                debug_println!("{} [{}] GetLocal[{}]", idx - 1, GetLocal::CODE, _op.idx);
                 len + 1
             }
             SetLocal::CODE => {
-                let (len, op) = SetLocal::decode(&self.code, idx);
-                debug_println!("{} [{}] SetLocal[{}]", idx - 1, SetLocal::CODE, op.idx);
+                let (len, _op) = SetLocal::decode(&self.code, idx);
+                debug_println!("{} [{}] SetLocal[{}]", idx - 1, SetLocal::CODE, _op.idx);
                 len + 1
             }
             RelJump::CODE => {
-                let (len, op) = RelJump::decode(&self.code, idx);
-                debug_println!("{} [{}] RelJump[{}]", idx - 1, RelJump::CODE, op.idx);
+                let (len, _op) = RelJump::decode(&self.code, idx);
+                debug_println!("{} [{}] RelJump[{}]", idx - 1, RelJump::CODE, _op.idx);
                 len + 1
             }
             RelJumpIfFalse::CODE => {
-                let (len, op) = RelJumpIfFalse::decode(&self.code, idx);
-                debug_println!("{} [{}] RelJumpIfFalse[{}]", idx - 1, RelJumpIfFalse::CODE, op.idx);
+                let (len, _op) = RelJumpIfFalse::decode(&self.code, idx);
+                debug_println!("{} [{}] RelJumpIfFalse[{}]", idx - 1, RelJumpIfFalse::CODE, _op.idx);
                 len + 1
             }
             Call::CODE => {
-                let (len, op) = Call::decode(&self.code, idx);
-                debug_println!("{} [{}] Call[arity-{}]", idx - 1, Call::CODE, op.arity);
+                let (len, _op) = Call::decode(&self.code, idx);
+                debug_println!("{} [{}] Call[arity-{}]", idx - 1, Call::CODE, _op.arity);
                 len + 1
             }
             SmallConst::CODE => {
-                let (len, op) = SmallConst::decode(&self.code, idx);
-                debug_println!("{} [{}] SmallConst[{}]", idx - 1, SmallConst::CODE, op.val);
+                let (len, _op) = SmallConst::decode(&self.code, idx);
+                debug_println!("{} [{}] SmallConst[{}]", idx - 1, SmallConst::CODE, _op.val);
                 len  + 1
             }
             Closure::CODE => {
@@ -192,16 +192,6 @@ impl Chunk {
                     panic!("Closure not encoded properly");
                 }
 
-            }
-            SetUpValue::CODE => {
-                let (len, op) = SetUpValue::decode(&self.code, idx);
-                debug_println!("{} [{}] SetUpValue[{}]", idx - 1, SetUpValue::CODE, op.idx);
-                len + 1
-            }
-            GetUpValue::CODE => {
-                let (len, op) = GetUpValue::decode(&self.code, idx);
-                debug_println!("{} [{}] GetUpValue[{}]", idx - 1, GetUpValue::CODE, op.idx);
-                len + 1
             }
             _ => panic!("Bad op code {}", byte)
         }

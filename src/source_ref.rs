@@ -88,6 +88,7 @@ impl SourceRef {
             line: min(self.offset, other.offset),
         }
     }
+    #[allow(dead_code)]
     pub fn source(&self) -> String {
         self.src.src.chars().skip(self.offset).take(self.len).collect()
     }
