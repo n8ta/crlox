@@ -1,4 +1,4 @@
-use crate::ops::{OpTrait, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst};
+use crate::ops::{OpTrait, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst, Stack};
 use crate::{debug_println, SourceRef};
 use crate::value::Value;
 
@@ -191,7 +191,11 @@ impl Chunk {
                 } else {
                     panic!("Closure not encoded properly");
                 }
-
+            }
+            Stack::CODE => {
+                let (_len, _op) = Stack::decode(&self.code, idx);
+                debug_println!("{} [{}] Print Stack", idx - 1, SmallConst::CODE);
+                1
             }
             _ => panic!("Bad op code {}", byte)
         }

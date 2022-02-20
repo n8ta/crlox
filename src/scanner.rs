@@ -82,6 +82,7 @@ pub enum TType {
     While,
     Error(String),
     EOF,
+    Stack,
 }
 
 pub const IDENTIFIER_TTYPE_ID: TTypeId = 19;
@@ -131,6 +132,7 @@ impl Display for TType {
             TType::While => "WHILE",
             TType::Error(_) => "ERROR",
             TType::EOF => "EOF",
+            TType::Stack => "stack",
         };
         f.write_str(str)
     }
@@ -179,6 +181,7 @@ impl TType {
             TType::While => "while",
             TType::Error(_) => "error",
             TType::EOF => "EOF",
+            TType::Stack => "stack",
         }
     }
     pub fn id(&self) -> TTypeId {
@@ -223,6 +226,7 @@ impl TType {
             TType::While => 37,
             TType::Error(_) => ERROR_TTYPE_ID,
             TType::EOF => 39,
+            TType::Stack => 40,
         }
     }
 }
@@ -298,7 +302,7 @@ impl ScannerInner {
             keywords.insert("return".as_bytes(), TType::Return);
             keywords.insert("FOR".as_bytes(), TType::For);
             keywords.insert("for".as_bytes(), TType::For);
-
+            keywords.insert("stack".as_bytes(), TType::Stack);
         }
         ScannerInner {
             keywords,

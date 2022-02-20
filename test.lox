@@ -1,8 +1,5 @@
-var a = 10;
-var b = 11;
-for (var a = 0; a < 5; a = a + 1) {
-    print a;
+fun def(a) {
+    5 + a;
 }
-print a;
-print b;
-print a+b;
+
+print def(1);

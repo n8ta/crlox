@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::ops::{EqualEqual, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure};
+use crate::ops::{EqualEqual, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure, Stack};
 use crate::value::Value;
 use crate::ops::OpTrait;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
@@ -94,6 +94,11 @@ impl VM {
         debug_println!("{} {:?}", msg, &self.stack);
         debug_println!("\t{:?}", &self.stack[self.frame.frame_offset..self.stack.len()]);
     }
+    fn debug_stack(&self, msg: &str) {
+        println!("{} {:?}", msg, &self.stack);
+        println!("\t{:?}", &self.stack[self.frame.frame_offset..self.stack.len()]);
+    }
+
 
     fn read_byte(&mut self) -> Result<u8, InterpError> {
         let ip = self.frame.ip;
@@ -170,18 +175,23 @@ impl VM {
             match inst {
                 Ret::CODE => {
                     #[cfg(debug_assertions)]
-                        self.print_stack_frame("Pre ret stack");
+                    self.print_stack_frame("Pre ret stack");
                     let (_len, _ret) = Ret::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
                     if let Some(frame) = self.frames.pop() {
                         let ret = self.pop()?;
-                        for _ in 0..self.frame.closure.arity + 1 {
-                            self.pop()?;
+
+                        while self.stack.len() > self.frame.frame_offset {
+                            self.pop();
                         }
+
                         self.frame = frame;
                         debug_println!("Function returned {}", ret);
+                        // self.pop()?;
                         self.push(ret);
+
                         #[cfg(debug_assertions)]
-                            self.print_stack_frame("Post ret stack");
+                        self.print_stack_frame("Post ret stack");
+
                     } else {
                         #[cfg(debug_assertions)]
                             self.print_stack_frame("Final return stack");
@@ -273,6 +283,10 @@ impl VM {
                 }
                 Closure::CODE => {
                     self.closure()?;
+                }
+                Stack::CODE => {
+                    self.debug_stack("debug");
+                    self.offset_ip(1);
                 }
                 // GetUpValue::CODE => {
                 //     self.get_up_value()?;
@@ -551,7 +565,8 @@ impl VM {
         let (_, call) = Call::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
         self.offset_ip_pos(2);
         #[cfg(debug_assertions)]
-            self.print_stack_frame("Pre call stack: ");
+        self.print_stack_frame("Pre call stack: ");
+
         let peeked = self.peek_at((self.stack.len() - self.frame.frame_offset - (call.arity as usize) - 1) as u8)?;
         match peeked {
             Value::Closure(closure) => {

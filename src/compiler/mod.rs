@@ -3,7 +3,7 @@ mod rules;
 use std::fmt::{Display, Formatter};
 use std::mem::{swap};
 use std::process::exit;
-use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call, SmallConst, Closure, OpU8};
+use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call, SmallConst, Closure, OpU8, Stack};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Scanner, TType, TTypeId};
 use crate::{Chunk, SourceRef, Symbol};
 use crate::chunk::Write;
@@ -216,10 +216,10 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
     consume(&mut new_compiler, TType::LeftBrace.id(), "Expected '{' before function body")?;
     block(&mut new_compiler)?;
 
+    end_scope(&mut new_compiler);
     Nil {}.emit(&mut new_compiler);
     Ret {}.emit(&mut new_compiler);
 
-    end_scope(&mut new_compiler);
     let completed_chunk = new_compiler.chunk.clone();
 
     let func_const = compiler.current_chunk().add_const(Value::Func(
@@ -248,6 +248,9 @@ fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compiler
         fun_declaration(compiler, can_assign)?;
     } else if matches(compiler, TType::Var.id())? {
         var_declaration(compiler, can_assign)?;
+    } else if matches(compiler, TType::Stack.id())? {
+        consume(compiler, TType::Semicolon.id(), "Expected a ';' after stack");
+        Stack{}.emit(compiler);
     } else {
         statement(compiler, can_assign)?;
     }

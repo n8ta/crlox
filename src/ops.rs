@@ -378,4 +378,16 @@ impl OpTrait for Closure {
     }
 }
 
+pub struct Stack {}
+impl OpTrait for Stack {
+    const CODE: u8 = 19;
+    const SIZE: usize = 1;
 
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE], src.clone())
+    }
+
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        (0, Stack{})
+    }
+}
