@@ -101,12 +101,13 @@ impl Rules {
         }
         Rules { rules }
     }
-    pub fn get_rule<'a>(&'a self, typ: &TType) -> &'a Rule {
+    pub fn get_rule(&self, typ: &TType) -> &Rule {
         self.rules.get(&typ.id()).unwrap()
     }
 
 }
 
+#[derive(Clone)]
 pub struct Rule {
     pub prefix: Option<CompilerFnTy>,
     pub infix: Option<CompilerFnTy>,

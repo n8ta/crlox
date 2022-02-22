@@ -1,4 +1,4 @@
-use crate::ops::{OpTrait, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst, Stack};
+use crate::ops::{OpTrait, Closure, Add, Const, Div, EqualEqual, False, Less, LessOrEq, Mult, Negate, Nil, Not, NotEqual, Pop, Print, Ret, Sub, True, GetLocal, SetLocal, RelJump, RelJumpIfFalse, Call, SmallConst, Stack, RelJumpIfTrue};
 use crate::{debug_println, SourceRef};
 use crate::value::Value;
 
@@ -170,6 +170,11 @@ impl Chunk {
             RelJumpIfFalse::CODE => {
                 let (len, _op) = RelJumpIfFalse::decode(&self.code, idx);
                 debug_println!("{} [{}] RelJumpIfFalse[{}]", idx - 1, RelJumpIfFalse::CODE, _op.idx);
+                len + 1
+            }
+            RelJumpIfTrue::CODE => {
+                let (len, _op) = RelJumpIfTrue::decode(&self.code, idx);
+                debug_println!("{} [{}] RelJumpIfTrue[{}]", idx - 1, RelJumpIfFalse::CODE, _op.idx);
                 len + 1
             }
             Call::CODE => {

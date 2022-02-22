@@ -20,7 +20,6 @@ mod e2e_tests;
 mod native_func;
 mod debug;
 mod closure;
-mod resolver;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

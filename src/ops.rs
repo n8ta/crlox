@@ -13,7 +13,7 @@ pub trait OpTrait {
     fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self);
     fn emit(&self, compiler: &mut Compiler) -> Write {
         let prev = compiler.prev_source();
-        self.write(&mut compiler.current_chunk(), prev)
+        self.write(&mut compiler.chunk(), prev)
     }
 }
 
@@ -248,6 +248,32 @@ pub struct GetLocal {
     pub idx: u8,
 }
 
+struct GetUpValue {
+    idx: u8,
+    is_local: bool,
+}
+impl OpTrait for GetUpValue {
+    const CODE: u8 = 19;
+    const SIZE: usize = 3;
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE, self.idx, if self.is_local { 0 } else { 1 }], src)
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (2, GetUpValue {idx: code[idx], is_local: code[idx+1] == 0}) }
+}
+struct SetUpvalue {
+    idx: u8,
+    is_local: bool,
+}
+impl OpTrait for SetUpvalue {
+    const CODE: u8 = 20;
+    const SIZE: usize = 3;
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        code.add_bytes(&[Self::CODE, self.idx, if self.is_local { 0 } else { 1 }], src)
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) { (2, SetUpvalue {idx: code[idx], is_local: code[idx+1] == 0}) }
+}
+
+
 impl OpTrait for GetLocal {
     const CODE: u8 = 22;
     const SIZE: usize = 2;
@@ -387,7 +413,36 @@ impl OpTrait for Stack {
         code.add_bytes(&[Self::CODE], src.clone())
     }
 
-    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+    fn decode(_code: &Vec<u8>, _idx: usize) -> (usize, Self) {
         (0, Stack{})
+    }
+}
+
+pub struct RelJumpIfTrue {
+    pub idx: i16,
+}
+
+impl OpTrait for RelJumpIfTrue {
+    const CODE: u8 = 29;
+    const SIZE: usize = 3;
+    fn write(&self, code: &mut Chunk, src: SourceRef) -> Write {
+        let bytes = i16::to_be_bytes(self.idx);
+        code.add_bytes(&[Self::CODE, bytes[0], bytes[1]], src.clone())
+    }
+    fn decode(code: &Vec<u8>, idx: usize) -> (usize, Self) {
+        let bytes = [code[idx], code[idx + 1]];
+        let idx = i16::from_be_bytes(bytes);
+        (2, RelJumpIfTrue { idx })
+    }
+}
+
+impl OpJumpTrait for RelJumpIfTrue {
+    fn overwrite(&self, chunk: &mut Chunk, write: &Write) {
+        let offset: i64 = (chunk.len() - write.start) as i64;
+        if offset > (i16::MAX as i64) || offset < (i16::MIN as i64) {
+            panic!("Jump too big")
+        }
+        let bytes = i16::to_be_bytes(offset as i16);
+        chunk.overwrite(write, &[Self::CODE, bytes[0], bytes[1]]);
     }
 }

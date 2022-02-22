@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::ops::{EqualEqual, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure, Stack};
+use crate::ops::{EqualEqual, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure, Stack, RelJumpIfTrue};
 use crate::value::Value;
 use crate::ops::OpTrait;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
@@ -171,6 +171,7 @@ impl VM {
         loop {
             let inst = self.read_byte()?;
             let ip = self.frame.ip;
+            #[cfg(debug_assertions)]
             self.frame.closure.chunk.disassemble_op(&inst, ip + 1);
             match inst {
                 Ret::CODE => {
@@ -181,7 +182,7 @@ impl VM {
                         let ret = self.pop()?;
 
                         while self.stack.len() > self.frame.frame_offset {
-                            self.pop();
+                            self.pop()?;
                         }
 
                         self.frame = frame;
@@ -271,6 +272,9 @@ impl VM {
                 }
                 RelJumpIfFalse::CODE => {
                     self.rel_jump_if_false()?;
+                }
+                RelJumpIfTrue::CODE => {
+                    self.rel_jump_if_true()?;
                 }
                 RelJump::CODE => {
                     self.rel_jump()?;
@@ -548,6 +552,16 @@ impl VM {
     fn rel_jump_if_false(&mut self) -> Result<(), InterpError> {
         let (_, jump) = RelJumpIfFalse::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
         if !self.peek().truthy() {
+            self.offset_ip(jump.idx as isize);
+        } else {
+            self.offset_ip_pos(3);
+        }
+        Ok(())
+    }
+
+    fn rel_jump_if_true(&mut self) -> Result<(), InterpError> {
+        let (_, jump) = RelJumpIfTrue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+        if self.peek().truthy() {
             self.offset_ip(jump.idx as isize);
         } else {
             self.offset_ip_pos(3);
