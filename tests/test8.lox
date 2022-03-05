@@ -1,0 +1,8 @@
+for (var i = 0; i < 5; i=i+1) {
+    print i;
+}
+
+for (var j = 40; j < 50; j = j) {
+    print j;
+    j = 90;
+}
