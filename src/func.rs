@@ -1,16 +1,30 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
-use crate::{Chunk, Symbol};
+use crate::{Chunk, Symbol, Value};
 
 #[derive(Clone)]
 pub struct Func {
     inner: &'static FuncInner,
 }
 
+
 impl Debug for Func {
+    /// Print this function and any function in it's constants
+    /// Hope there's no loops!
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("func<{}>", self.inner.name))
+        f.write_str(&format!("func<{}>\n", self.inner.name))?;
+        for (idx, op) in self.chunk.code.iter().enumerate() {
+            f.write_str(&format!("{}: {}\n", idx, op))?;
+        }
+        f.write_str("\n")?;
+        for constant in self.chunk.constants.iter() {
+            if let Value::Func(const_func) = constant {
+                f.write_str(&format!("{:?}", const_func))?;
+            }
+        }
+        Ok(())
+
     }
 }
 
@@ -34,7 +48,8 @@ pub struct FuncInner {
     pub chunk: Chunk,
     pub arity: u8,
     pub ftype: FuncType,
-    pub num_upvalues: usize,
+    pub upvalues: Vec<crate::compiler::Upvalue>,
+
 }
 
 impl Func {
@@ -44,19 +59,19 @@ impl Func {
             chunk,
             arity: 0,
             ftype: FuncType::Script,
-            num_upvalues: 0,
+            upvalues: vec![],
         }));
         Func {
             inner,
         }
     }
-    pub fn new(name: Symbol, arity: u8, ftype: FuncType, chunk: Chunk, upvalues: usize) -> Func {
+    pub fn new(name: Symbol, arity: u8, ftype: FuncType, chunk: Chunk, upvalues: Vec<crate::compiler::Upvalue>) -> Func {
         let inner: &'static FuncInner = Box::leak(Box::new(FuncInner {
             name,
             chunk,
             arity,
             ftype,
-            num_upvalues: upvalues,
+            upvalues,
         }));
 
         Func {

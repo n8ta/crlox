@@ -5,6 +5,7 @@ use crate::source_ref::SourceRef;
 use crate::vm::{VM};
 use crate::compiler::Compiler;
 use crate::symbolizer::{Symbol, Symbolizer};
+use crate::value::Value;
 
 mod value;
 mod func;
@@ -59,9 +60,14 @@ fn main() {
     };
 
     if dump_bytecode {
-        func.chunk.disassemble();
-        return;
+        unsafe {
+            println!("Op size is : {}B", core::mem::size_of::<crate::ops::Op>());
+        }
+        println!("{:?}", func);
+        // return;
     }
+
+
 
     let res = VM::interpret(func, symbolizer.clone());
     match res {

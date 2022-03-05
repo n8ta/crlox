@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ops::{Op};
 use crate::value::Value;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
+use crate::compiler::Upvalue;
 use crate::func::Func;
 use crate::native_func::NativeFunc;
 
@@ -261,8 +262,8 @@ impl VM {
                 Op::SmallConst(val) => {
                     self.small_const(*val)?;
                 }
-                Op::Closure(a,b) => {
-                    self.closure(*a,*b)?;
+                Op::Closure(a) => {
+                    self.closure(*a)?;
                 }
                 Op::Stack => {
                     self.debug_stack("debug");
@@ -291,23 +292,27 @@ impl VM {
     }
 
     fn capture_upvalue(&mut self, idx: u8) -> Rc<Value> {
-        Rc::new(Value::Nil)
+        debug_println!("Capturing {:?} closure upvalues len {}", self.frame.closure.upvalues.get(idx as usize), self.frame.closure.upvalues.len());
+        debug_println!("Func upvalues len: {:?}", self.frame.closure.func.upvalues);
+        self.frame.closure.upvalues[idx as usize].clone()
     }
 
-    fn closure(&mut self, func_idx: u8, retval_idx: u8) -> Result<(), InterpError> {
+    fn closure(&mut self, func_idx: u8) -> Result<(), InterpError> {
         let func = &self.frame.closure.func.chunk.constants[func_idx as usize];
         if let Value::Func(f) = func {
             let mut closure = crate::closure::RtClosure::new(f.clone());
 
-            debug_println!("Function {}", f.name);
+            debug_println!("Function {} {:?}", f.name, f.upvalues);
 
-            // for (idx, up) in op.upvalues.iter().enumerate() {
-            //     if up.local {
-            //         closure.upvalues[idx] = self.capture_upvalue(op.idx)
-            //     } else  {
-            //         closure.upvalues[idx] = self.frame.closure.upvalues[up.idx as usize].clone()
-            //     }
-            // }
+            for (idx, up) in f.upvalues.iter().enumerate() {
+                match up {
+                    Upvalue::FromParent(parent_idx) => {
+                        debug_println!("Capturing from parent idx {}", parent_idx);
+                        closure.upvalues[idx] = self.frame.closure.upvalues[*parent_idx as usize].clone();
+                    }
+                    Upvalue::Root(_) => {}
+                }
+            }
             self.push(Value::Closure(closure));
             self.bump_ip();
             Ok(())
@@ -494,13 +499,15 @@ impl VM {
         #[cfg(debug_assertions)]
         self.print_stack_frame("Pre call stack: ");
 
+
         let peeked = self.peek_at((self.stack.len() - self.frame.frame_offset - (arity as usize) - 1) as u8)?;
         match peeked {
             Value::Closure(closure) => {
+                debug_println!("Upvalues: {:?}", closure.func.upvalues);
                 if arity != closure.arity {
                     return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()), format!("Function {} expects {} arguments but got {}", closure.name, closure.arity, arity)));
                 }
-                debug_println!("new func disass");
+                debug_println!("new func disass {}", closure.func.name);
                 #[cfg(debug_assertions)]
                 closure.chunk.disassemble();
 
@@ -512,6 +519,7 @@ impl VM {
                     ip: 0,
                     frame_offset,
                 };
+
                 swap(&mut new_frame, &mut self.frame);
                 self.frames.push(new_frame);
                 #[cfg(debug_assertions)]

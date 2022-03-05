@@ -28,22 +28,6 @@ pub struct Resolver {
     scopes: Vec<Vec<Local>>,
 }
 
-pub fn resolve_upvalue(compiler: &mut Compiler, name: &Symbol, src: &SourceRef) -> Result<u8, CompilerError> {
-    for stack in &mut compiler.stack {
-        if let Some(idx) = stack.resolver.resolve_local(name, src) {
-            // add_upvalue function from the book is logically here
-            let new_up = Upvalue { idx, local: true };
-            if let Some((idx, up)) = stack.upvalues.iter().enumerate().find(|(_idx, up)| **up == new_up) {
-                return Ok((idx) as u8);
-            } else {
-                stack.upvalues.push(new_up);
-                return Ok((stack.upvalues.len() - 1) as u8);
-            }
-        }
-    }
-    Err(CompilerError::new(format!("Cannot find {}", name), src.clone()))
-}
-
 impl Resolver {
     pub fn resolve_local(&self, name: &Symbol, src: &SourceRef) -> Option<u8> {
         let flat = flat(&self.scopes);

@@ -20,7 +20,7 @@ impl Debug for RtClosure {
 impl RtClosure {
     pub fn new(func: Func) -> Self {
         let mut upvalues = vec![];
-        for _ in 0..func.num_upvalues {
+        for _ in 0..func.upvalues.len() {
             upvalues.push(Rc::new(Value::Nil))
         }
         RtClosure { func, upvalues }

@@ -2,25 +2,26 @@ mod rules;
 mod resolver;
 mod error;
 
+use std::collections::{HashMap, HashSet};
+use std::fs::copy;
 use error::CompilerError;
 
 use std::mem::{swap};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Scanner, TType, TTypeId};
-use crate::{Chunk, SourceRef, Symbol};
+use crate::{Chunk, debug_println, SourceRef, Symbol};
 use crate::chunk::Write;
 use crate::compiler::rules::{Precedence, Rules};
 use crate::func::{Func, FuncType};
 use resolver::Resolver;
-use crate::compiler::resolver::resolve_upvalue;
 use crate::ops::Op;
 use crate::symbolizer::Symbolizer;
 use crate::value::{Value};
 
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct Upvalue {
-    pub local: bool,
-    pub idx: u8,
+pub enum Upvalue {
+    FromParent(u8), // this u8 is an index in the parent's Vec<Rc<Value>> upvalues
+    Root(u8) // this u8 is the index of the local
 }
 
 pub struct SubCompiler {
@@ -180,6 +181,8 @@ fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
     let name = parse_variable(compiler, "Expected to find an identifier after a var")?;
     if matches(compiler, TType::Eq.id())? {
         expression(compiler, can_assign)?;
+        let prev = compiler.scanner.previous().src.clone();
+        Op::SetLocal(compiler.resolver().resolve_local(&name, &prev).unwrap()).emit(compiler);
     } else {
         Op::Nil.emit(compiler);
     }
@@ -222,18 +225,42 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
     Op::Nil.emit(compiler);
     Op::Ret.emit(compiler);
 
-    let popped = compiler.stack.pop().unwrap();
+    let mut popped = compiler.stack.pop().unwrap();
+
+    // hashmap from index of local in the stack to its actual position in the up value array
+    let upvalue_root_inidces = popped.upvalues.iter().enumerate().filter_map(|(upvalue_idx, u)| {
+        match u {
+            Upvalue::FromParent(_) => None,
+            Upvalue::Root(stack_idx) => Some((*stack_idx, upvalue_idx as u8)),
+        }
+    }).collect::<HashMap<u8, u8>>();
+    for op in popped.chunk.code.iter_mut() {
+        if let Op::GetLocal(idx) = op.clone() {
+            if let Some(upval_idx) = upvalue_root_inidces.get(&idx) {
+                let mut get_up = Op::GetUpvalue(*upval_idx);
+                debug_println!("Replaced a get local with a get upvalue {}", upval_idx);
+                swap(&mut get_up, op)
+            }
+        }
+        if let Op::SetLocal(idx) = op.clone() {
+            if let Some(upval_idx) = upvalue_root_inidces.get(&idx) {
+                let mut set_up = Op::SetUpvalue(*upval_idx);
+                debug_println!("Replaced a set local with a set upvalue {}", upval_idx);
+                swap(&mut set_up, op)
+            }
+        }
+    }
 
     let func_const_idx = compiler.chunk().add_const(Value::Func(
         Func::new(name.clone(),
                   arity,
                   FuncType::Function,
                   popped.chunk.clone(),
-                  popped.upvalues.len(),
+                  popped.upvalues.clone(),
         )));
 
     // todo: upvalues? popped.upvalues.clone()
-    Op::Closure(func_const_idx, 0).emit(compiler);
+    Op::Closure(func_const_idx).emit(compiler);
     Ok(())
 }
 
@@ -598,26 +625,74 @@ fn variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerErr
     named_variable(compiler, can_assign)
 }
 
-fn get_or_set(compiler: &mut Compiler, can_assign: bool, _name: &Symbol, idx: u8) -> Result<(), CompilerError> {
+type CreateOpFn  = fn(u8) -> Op;
+fn get_or_set(compiler: &mut Compiler,
+              can_assign: bool,
+              idx: u8,
+              create_get: CreateOpFn, create_set: CreateOpFn) -> Result<(), CompilerError> {
     if can_assign && matches(compiler, TType::Eq.id())? {
         expression(compiler, can_assign)?;
-        Op::SetLocal(idx).emit(compiler);
+        create_set(idx).emit(compiler);
     } else {
-        Op::GetLocal(idx).emit(compiler);
+        create_get(idx).emit(compiler);
     }
     Ok(())
+}
+
+enum Resolution {
+    Local(u8),
+    Upvalue(u8),
+}
+
+fn resolve(compiler: &mut Compiler, name: &Symbol, prev: &SourceRef) -> Result<Resolution, CompilerError> {
+    if let Some(local_idx) = compiler.resolver().resolve_local(name, prev) {
+        return Ok(Resolution::Local(local_idx))
+    }
+    Ok(Resolution::Upvalue(resolve_upvalue(compiler, name, prev)?))
+}
+
+pub fn resolve_upvalue(compiler: &mut Compiler, name: &Symbol, src: &SourceRef) -> Result<u8, CompilerError> {
+    let mut found_at = 0;
+    let mut ret = None;
+    for (stack_idx, stack) in compiler.stack.iter_mut().enumerate().rev() {
+        if let Some(idx) = stack.resolver.resolve_local(name, src) {
+            stack.upvalues.push(Upvalue::Root(idx));
+            found_at = stack_idx;
+            ret = Some(((stack.upvalues.len() - 1) as u8));
+            break
+        }
+        // todo: Put duplicate check back
+    }
+
+
+    if let Some(ret) = ret {
+        let mut parent_idx = ret;
+        debug_println!("Found at {} ret {:?}", found_at, ret);
+        let total_len = compiler.stack.len();
+        for (stack_idx, stack) in compiler.stack.iter_mut().enumerate().skip(found_at+1).take(total_len) {
+            debug_println!("Adding from parent up value to stack idx {}", stack_idx);
+            stack.upvalues.push(Upvalue::FromParent(parent_idx));
+            parent_idx = (stack.upvalues.len() - 1) as u8;
+        }
+        return Ok(ret);
+    }
+
+    Err(CompilerError::new(format!("Cannot find {}", name), src.clone()))
 }
 
 fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     let name = if let TType::Identifier(str) = &compiler.scanner.previous().kind.clone() { str.clone() } else { panic!("Compiler error"); };
     let prev = compiler.scanner.previous().src.clone();
-    match compiler.resolver().resolve_local(&name, &prev) {
-        None => {
-            let idx = resolve_upvalue(compiler, &name, &prev)?;
-            // todo: get or set upvalues
-        },
-        Some(idx) => get_or_set(compiler, can_assign, &name, idx)?,
-    };
+    match resolve(compiler, &name, &prev)? {
+        Resolution::Local(idx) => {
+            debug_println!("Resolved {} as local", name);
+            get_or_set(compiler, can_assign, idx, |idx: u8| Op::GetLocal(idx), |idx: u8| Op::SetLocal(idx))?
+        }
+        Resolution::Upvalue(up_idx) => {
+            debug_println!("Resolved {} as upval", name);
+            get_or_set(compiler, can_assign, up_idx, |idx: u8| Op::GetUpvalue(idx), |idx: u8| Op::SetUpvalue(idx))?
+        }
+    }
     Ok(())
 }
 

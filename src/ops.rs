@@ -33,7 +33,7 @@ pub enum Op {
     RelJump(i16),
     Call(u8),
     SmallConst(u8),
-    Closure(u8, u8), // function idx, ret values idx
+    Closure(u8),
     Stack,
     RelJumpIfTrue(i16),
 }
@@ -94,7 +94,7 @@ impl Display for Op {
             Op::RelJump(offset) => format!("RelJump offset-{}", offset),
             Op::Call(arity) => format!("Call arity-{}", arity),
             Op::SmallConst(val) => format!("SmallConst val-{}", val),
-            Op::Closure(func_idx, retval_idx) => format!("Closure funcidx-{} retval-{}", func_idx, retval_idx),
+            Op::Closure(func_idx) => format!("Closure funcidx {}", func_idx),
             Op::Stack => "Stack".to_string(),
             Op::RelJumpIfTrue(offset) => format!("RelJumpIfTrue offset-{}", offset),
         };

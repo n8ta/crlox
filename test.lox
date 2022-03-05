@@ -1,5 +1,8 @@
-if (false) {
-print "trueee";
-} else {
-print "falsee";
+fun A() {
+    var x = 1;
+    fun B() {
+        return x + 1;
+    }
+    return B;
 }
+print A()();
