@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::ops::{EqualEqual, False, Less, LessOrEq, Nil, Not, NotEqual, True, Print, Ret, Const, Negate, Add, Sub, Mult, Div, Pop, GetLocal, SetLocal, RelJumpIfFalse, RelJump, Call, SmallConst, Closure, Stack, RelJumpIfTrue};
+use crate::ops::{Op};
 use crate::value::Value;
-use crate::ops::OpTrait;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
 use crate::func::Func;
 use crate::native_func::NativeFunc;
@@ -54,6 +54,7 @@ impl InterpError {
 
 pub struct VM {
     stack: Vec<Value>,
+
     globals: HashMap<Symbol, Value>,
     symbolizer: Symbolizer,
     frames: Vec<CallFrame>,
@@ -99,20 +100,6 @@ impl VM {
         println!("\t{:?}", &self.stack[self.frame.frame_offset..self.stack.len()]);
     }
 
-
-    fn read_byte(&mut self) -> Result<u8, InterpError> {
-        let ip = self.frame.ip;
-        match self.frame.closure.chunk.code.get(ip) {
-            Some(byte) => Ok(*byte),
-            None => {
-                match self.frame.closure.chunk.get_source(ip) {
-                    None => Err(InterpError::compile(None, format!("Tried to read a byte but were unable to!"))),
-                    Some(src) => Err(InterpError::compile(Some(src.clone()), format!("Tried to read a byte but were unable to!"))),
-                }
-            }
-        }
-    }
-
     fn pop(&mut self) -> Result<Value, InterpError> {
         match self.stack.pop() {
             None => {
@@ -133,7 +120,7 @@ impl VM {
             self.print_stack_frame(&format!("peek at stack idx-{} frame-{}: ", idx, self.frame.frame_offset));
 
         match self.stack.get(self.frame.frame_offset + idx as usize) {
-            None => panic!("panic"),
+            None => panic!("bad stack access idx-{} offset-{}", idx, self.frame.frame_offset),
             Some(v) => {
                 debug_println!("Got {}", v.clone());
                 Ok(v.clone())
@@ -169,15 +156,13 @@ impl VM {
 
     fn run(&mut self) -> Result<Value, InterpError> {
         loop {
-            let inst = self.read_byte()?;
             let ip = self.frame.ip;
-            #[cfg(debug_assertions)]
-            self.frame.closure.chunk.disassemble_op(&inst, ip + 1);
-            match inst {
-                Ret::CODE => {
+
+            debug_println!("{} {}", ip, self.frame.closure.chunk.code.get(ip).unwrap());
+            match self.frame.closure.chunk.code.get(ip).unwrap() {
+                Op::Ret => {
                     #[cfg(debug_assertions)]
                     self.print_stack_frame("Pre ret stack");
-                    let (_len, _ret) = Ret::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
                     if let Some(frame) = self.frames.pop() {
                         let ret = self.pop()?;
 
@@ -199,148 +184,142 @@ impl VM {
                         return Ok(Value::Nil);
                     }
                 }
-                Const::CODE => {
-                    self.load_const()?;
+                Op::Const(idx) => {
+                    self.load_const(*idx)?;
                 }
-                Negate::CODE => {
+                Op::Negate => {
                     self.negate()?;
                 }
-                Add::CODE => {
+                Op::Add => {
                     self.add()?;
                 }
-                Sub::CODE => {
+                Op::Sub => {
                     self.sub()?;
                 }
-                Mult::CODE => {
+                Op::Mult => {
                     self.mult()?;
                 }
-                Div::CODE => {
+                Op::Div => {
                     self.div()?;
                 }
-                True::CODE => {
+                Op::True => {
                     self.push(Value::Bool(true));
                     self.bump_ip();
                 }
-                False::CODE => {
+                Op::False => {
                     self.push(Value::Bool(false));
                     self.bump_ip();
                 }
-                Nil::CODE => {
+                Op::Nil => {
                     self.push(Value::Nil);
                     self.bump_ip();
                 }
-                Not::CODE => {
+                Op::Not => {
                     let truthy = self.pop()?.truthy();
                     self.push(Value::Bool(!truthy));
                     self.bump_ip();
                 }
-                EqualEqual::CODE => {
+                Op::EqEq => {
                     self.ee()?;
                 }
-                NotEqual::CODE => {
+                Op::NotEq => {
                     self.ne()?;
                 }
-                Less::CODE => {
+                Op::LessThan => {
                     self.lt()?;
                 }
-                LessOrEq::CODE => {
+                Op::LessThanEq => {
                     self.lt_eq()?;
                 }
-                Print::CODE => {
+                Op::Print => {
                     let value = self.pop()?;
                     println!("{}", value);
                     self.bump_ip();
                 }
-                Pop::CODE => {
+                Op::Pop => {
                     self.pop()?;
                     self.bump_ip();
                 }
-                // DefGlobal::CODE => {
-                //     self.def_global()?;
-                // }
-                // GetGlobal::CODE => {
-                //     self.get_global()?;
-                // }
-                // SetGlobal::CODE => {
-                //     self.set_global()?;
-                // }
-                GetLocal::CODE => {
-                    self.get_local()?;
+                Op::GetLocal(idx) => {
+                    self.get_local(*idx)?;
                 }
-                SetLocal::CODE => {
-                    self.set_local()?;
+                Op::SetLocal(idx) => {
+                    self.set_local(*idx)?;
                 }
-                RelJumpIfFalse::CODE => {
-                    self.rel_jump_if_false()?;
+                Op::RelJumpIfFalse(offset) => {
+                    self.rel_jump_if_false(*offset)?;
                 }
-                RelJumpIfTrue::CODE => {
-                    self.rel_jump_if_true()?;
+                Op::RelJumpIfTrue(offset) => {
+                    self.rel_jump_if_true(*offset)?;
                 }
-                RelJump::CODE => {
-                    self.rel_jump()?;
+                Op::RelJump(offset) => {
+                    self.rel_jump(*offset)?;
                 }
-                Call::CODE => {
-                    self.call()?;
+                Op::Call(arity) => {
+                    self.call(*arity)?;
                 }
-                SmallConst::CODE => {
-                    self.small_const()?;
+                Op::SmallConst(val) => {
+                    self.small_const(*val)?;
                 }
-                Closure::CODE => {
-                    self.closure()?;
+                Op::Closure(a,b) => {
+                    self.closure(*a,*b)?;
                 }
-                Stack::CODE => {
+                Op::Stack => {
                     self.debug_stack("debug");
-                    self.offset_ip(1);
+                    self.bump_ip();
                 }
-                // GetUpValue::CODE => {
-                //     self.get_up_value()?;
-                // }
-                // SetUpValue::CODE => {
-                //     self.set_up_value()?;
-                // }
-                _ => return Err(InterpError::compile(None, format!("Hit an unknown bytecode opcode {}, this is a compiler bug", inst)))
+                Op::GetUpvalue(idx) => {
+                    self.get_up_value(*idx)?;
+                }
+                Op::SetUpvalue(idx) => {
+                    self.set_up_value(*idx)?;
+                }
             };
         }
     }
 
-    // fn set_up_value(&mut self) -> Result<(), InterpError> {
-    //     let (_len, op) = SetUpValue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-    //     self.offset_ip_pos(2);
-    //     // self.frame.closure.upvalues[op.idx as usize] = Rc::new(self.peek().clone());
-    //     Ok(())
-    // }
-    //
-    // fn get_up_value(&mut self) -> Result<(), InterpError> {
-    //     let (_len, op) = GetUpValue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-    //     self.push((*self.frame.closure.upvalues[op.idx as usize].clone()).clone());
-    //     self.offset_ip_pos(2);
-    //     Ok(())
-    // }
-    // fn upvalue(&mut self) -> Result<(), InterpError> {
-    //     Ok(())
-    // }
+    fn set_up_value(&mut self, idx: u8) -> Result<(), InterpError> {
+        self.frame.closure.upvalues[idx as usize] = Rc::new(self.peek().clone());
+        self.bump_ip();
+        Ok(())
+    }
 
-    fn closure(&mut self) -> Result<(), InterpError> {
-        let (len, op) = Closure::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        let func = &self.frame.closure.func.chunk.constants[op.idx as usize];
+    fn get_up_value(&mut self, idx: u8) -> Result<(), InterpError> {
+        self.push((*self.frame.closure.upvalues[idx as usize].clone()).clone());
+        self.bump_ip();
+        Ok(())
+    }
+
+    fn capture_upvalue(&mut self, idx: u8) -> Rc<Value> {
+        Rc::new(Value::Nil)
+    }
+
+    fn closure(&mut self, func_idx: u8, retval_idx: u8) -> Result<(), InterpError> {
+        let func = &self.frame.closure.func.chunk.constants[func_idx as usize];
         if let Value::Func(f) = func {
-            let closure = crate::closure::RtClosure::new(f.clone());
+            let mut closure = crate::closure::RtClosure::new(f.clone());
 
             debug_println!("Function {}", f.name);
 
+            // for (idx, up) in op.upvalues.iter().enumerate() {
+            //     if up.local {
+            //         closure.upvalues[idx] = self.capture_upvalue(op.idx)
+            //     } else  {
+            //         closure.upvalues[idx] = self.frame.closure.upvalues[up.idx as usize].clone()
+            //     }
+            // }
             self.push(Value::Closure(closure));
-            self.offset_ip_pos(len + 1);
+            self.bump_ip();
             Ok(())
         } else {
             panic!("Compile error: While making a closure expected a function on the stack but found a {}", func.tname())
         }
     }
 
-    fn small_const(&mut self) -> Result<(), InterpError> {
-        let (_len, op) = SmallConst::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        debug_println!("Small const! {}", op.val);
-        self.push(Value::Num(op.val as f64));
-        self.offset_ip_pos(2);
+    fn small_const(&mut self, val: u8) -> Result<(), InterpError> {
+        debug_println!("Small const! {}", val);
+        self.push(Value::Num(val as f64));
+        self.bump_ip();
         Ok(())
     }
 
@@ -383,66 +362,10 @@ impl VM {
         Ok(())
     }
 
-    // fn set_global(&mut self) -> Result<(), InterpError> {
-    //     let (_, set_global) = SetGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-    //     let global_name = self.frame.closure.chunk.constants.get(set_global.idx as usize).expect("Compiler error, bad index in get global op");
-    //     let global_name = if let Value::String(global_name_sym) = global_name {
-    //         global_name_sym.clone()
-    //     } else { panic!("Compiler error, non-string constant passed to GetGlobal"); };
-    //
-    //     let new_val = self.peek();
-    //     if self.globals.contains_key(&global_name) {
-    //         self.globals.insert(global_name.clone(), new_val.clone());
-    //     } else {
-    //         return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
-    //                                         format!("Cannot assign to global variable {} since it has not been declared", global_name)));
-    //     }
-    //     self.offset_ip_pos(2);
-    //     Ok(())
-    // }
-    //
-    // fn get_global(&mut self) -> Result<(), InterpError> {
-    //     let (_, get_global) = GetGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-    //     let global_idx = get_global.idx as usize;
-    //     let global_name = self.frame.closure.chunk.constants.get(global_idx).expect("Compiler error, bad index in get global op");
-    //     let global_name = if let Value::String(global_name) = global_name {
-    //         debug_println!("Getting global {}", global_name);
-    //         global_name.clone()
-    //     } else {
-    //         panic!("Compiler error, non-string constant passed to GetGlobal");
-    //     };
-    //     match self.globals.get(&global_name) {
-    //         None => return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
-    //                                                 format!("Global variable {} not found", global_name))),
-    //         Some(v) => {
-    //             debug_println!("\tGlobal is {}", v);
-    //             self.push(v.clone())
-    //         }
-    //     }
-    //     self.offset_ip_pos(2);
-    //     Ok(())
-    // }
-    //
-    // fn def_global(&mut self) -> Result<(), InterpError> {
-    //     let (_, def_global) = DefGlobal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-    //     let popped = self.pop()?;
-    //     let global_name = self.frame.closure.chunk.constants.get(def_global.idx as usize).unwrap();
-    //     debug_println!("Defining global '{}' as '{}'", global_name, popped);
-    //     let sym = if let Value::String(sym) = global_name {
-    //         sym.clone()
-    //     } else {
-    //         panic!("Compiler error, non-string constant passed to DefGlobal");
-    //     };
-    //     self.globals.insert(sym, popped);
-    //     self.offset_ip_pos(2);
-    //     Ok(())
-    // }
-
-    fn load_const(&mut self) -> Result<(), InterpError> {
-        let (_, con) = Const::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        let value: Value = self.frame.closure.chunk.constants.get(con.idx as usize).expect("Compiler error").clone();
+    fn load_const(&mut self, idx: u8) -> Result<(), InterpError> {
+        let value: Value = self.frame.closure.chunk.constants.get(idx as usize).expect("Compiler error").clone();
         self.push(value);
-        self.offset_ip_pos(2);
+        self.bump_ip();
         Ok(())
     }
 
@@ -528,71 +451,61 @@ impl VM {
         Ok(())
     }
 
-    fn get_local(&mut self) -> Result<(), InterpError> {
-        let (_, get_local) = GetLocal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        debug_println!("Pre get local[idx {}]", get_local.idx);
+    fn get_local(&mut self, idx: u8) -> Result<(), InterpError> {
         #[cfg(debug_assertions)]
             self.print_stack_frame("get local");
-        let peeked = self.peek_at(get_local.idx)?;
-        debug_println!("Got local {:?}", &peeked);
+        let peeked = self.peek_at(idx)?;
         self.push(peeked);
-        self.offset_ip_pos(2);
+        self.bump_ip();
         Ok(())
     }
 
-    fn set_local(&mut self) -> Result<(), InterpError> {
-        let (_, set_local) = SetLocal::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        // let stack_len = self.stack.len();
-        debug_println!("Setting local to {}", self.peek().clone());
-        self.stack[self.frame.frame_offset + set_local.idx as usize] = self.peek().clone();
-        self.offset_ip_pos(2);
+    fn set_local(&mut self, idx: u8) -> Result<(), InterpError> {
+        self.stack[self.frame.frame_offset + idx as usize] = self.peek().clone();
+        self.bump_ip();
         Ok(())
     }
 
-    fn rel_jump_if_false(&mut self) -> Result<(), InterpError> {
-        let (_, jump) = RelJumpIfFalse::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+    fn rel_jump_if_false(&mut self, offset: i16) -> Result<(), InterpError> {
         if !self.peek().truthy() {
-            self.offset_ip(jump.idx as isize);
+            self.offset_ip(offset as isize);
         } else {
-            self.offset_ip_pos(3);
+            self.bump_ip();
         }
         Ok(())
     }
 
-    fn rel_jump_if_true(&mut self) -> Result<(), InterpError> {
-        let (_, jump) = RelJumpIfTrue::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
+    fn rel_jump_if_true(&mut self, offset: i16) -> Result<(), InterpError> {
         if self.peek().truthy() {
-            self.offset_ip(jump.idx as isize);
+            self.offset_ip(offset as isize);
         } else {
-            self.offset_ip_pos(3);
+            self.bump_ip();
         }
         Ok(())
     }
 
-    fn rel_jump(&mut self) -> Result<(), InterpError> {
-        let (_, jump) = RelJump::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        self.offset_ip(jump.idx as isize);
+    fn rel_jump(&mut self, offset: i16) -> Result<(), InterpError> {
+        self.offset_ip(offset as isize);
         Ok(())
     }
 
-    fn call(&mut self) -> Result<(), InterpError> {
-        let (_, call) = Call::decode(&self.frame.closure.chunk.code, self.frame.ip + 1);
-        self.offset_ip_pos(2);
+    fn call(&mut self, arity: u8) -> Result<(), InterpError> {
+        self.bump_ip();
         #[cfg(debug_assertions)]
         self.print_stack_frame("Pre call stack: ");
 
-        let peeked = self.peek_at((self.stack.len() - self.frame.frame_offset - (call.arity as usize) - 1) as u8)?;
+        let peeked = self.peek_at((self.stack.len() - self.frame.frame_offset - (arity as usize) - 1) as u8)?;
         match peeked {
             Value::Closure(closure) => {
-                if call.arity != closure.arity {
-                    return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()), format!("Function {} expects {} arguments but got {}", closure.name, closure.arity, call.arity)));
+                if arity != closure.arity {
+                    return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()), format!("Function {} expects {} arguments but got {}", closure.name, closure.arity, arity)));
                 }
                 debug_println!("new func disass");
                 #[cfg(debug_assertions)]
                 closure.chunk.disassemble();
 
-                let frame_offset = self.stack.len() - (call.arity as usize) - 1;
-                debug_println!("Frame offset is len({}) - arity({}) - 1 == {}" ,self.stack.len(), call.arity, frame_offset);
+                let frame_offset = self.stack.len() - (arity as usize) - 1;
+                debug_println!("Frame offset is len({}) - arity({}) - 1 == {}" ,self.stack.len(), arity, frame_offset);
 
                 let mut new_frame = CallFrame {
                     closure: closure.clone(),
@@ -605,10 +518,10 @@ impl VM {
                 self.print_stack_frame(&format!("Post call stack frame-offset {}", self.frame.frame_offset));
             }
             Value::Native(native) => {
-                if call.arity != native.arity() {
+                if arity != native.arity() {
                     return Err(InterpError::runtime(
                         Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()),
-                        format!("Function {} expects {} arguments but got {}", native.name(), native.arity(), call.arity)));
+                        format!("Function {} expects {} arguments but got {}", native.name(), native.arity(), arity)));
                 }
                 self.push(native.call(vec![]));
             }

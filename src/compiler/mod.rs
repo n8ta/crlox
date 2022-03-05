@@ -5,21 +5,22 @@ mod error;
 use error::CompilerError;
 
 use std::mem::{swap};
-use crate::ops::{OpTrait, Add, Div, EqualEqual, False, Less, LessOrEq, Mult, Nil, Not, NotEqual, Pop, Print, Sub, True, Negate, Const, Ret, SetLocal, GetLocal, RelJump, RelJumpIfFalse, OpJumpTrait, Call, SmallConst, Closure, OpU8, Stack, RelJumpIfTrue};
 use crate::scanner::{IDENTIFIER_TTYPE_ID, Scanner, TType, TTypeId};
 use crate::{Chunk, SourceRef, Symbol};
 use crate::chunk::Write;
-use crate::compiler::rules::{Precedence, Rule, Rules};
+use crate::compiler::rules::{Precedence, Rules};
 use crate::func::{Func, FuncType};
 use resolver::Resolver;
+use crate::compiler::resolver::resolve_upvalue;
+use crate::ops::Op;
 use crate::symbolizer::Symbolizer;
 use crate::value::{Value};
 
 
-#[derive(PartialEq, Eq)]
-struct Upvalue {
-    local: bool,
-    idx: u8,
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Upvalue {
+    pub local: bool,
+    pub idx: u8,
 }
 
 pub struct SubCompiler {
@@ -29,7 +30,6 @@ pub struct SubCompiler {
 }
 
 pub struct Compiler {
-    src: String,
     rules: Rules,
     scanner: Scanner,
     symbolizer: Symbolizer,
@@ -56,10 +56,9 @@ impl<'a> Compiler {
     pub fn upvalues(&mut self) -> &mut Vec<Upvalue> {
         &mut self.stack.last_mut().unwrap().upvalues
     }
-    fn new(src: String, symbolizer: Symbolizer, scanner: Scanner) -> Compiler {
+    fn new(_src: String, symbolizer: Symbolizer, scanner: Scanner) -> Compiler {
         Compiler {
             stack: vec![SubCompiler { upvalues: vec![], chunk: Chunk::new(), resolver: Resolver::new() }],
-            src,
             scanner,
             panic_mode: false,
             had_error: None,
@@ -74,12 +73,12 @@ impl<'a> Compiler {
         loop {
             let is_match = matches(self, TType::EOF.id())?;
             if is_match {
-                break
+                break;
             } else {
                 declaration(self, true)?;
             }
         }
-        self.chunk().code.push(Ret::CODE);
+        self.chunk().code.push(Op::Ret);
         if let Some(err) = &self.had_error {
             return Err(CompilerError::new(err.msg.clone(), err.src.clone()));
         }
@@ -120,7 +119,7 @@ fn begin_scope(compiler: &mut Compiler) {
 
 fn end_scope(compiler: &mut Compiler) {
     for _ in compiler.resolver().end_scope() {
-        Pop {}.emit(compiler);
+        Op::Pop.emit(compiler);
     }
 }
 
@@ -151,11 +150,12 @@ fn parse_precedence(compiler: &mut Compiler, prec: Precedence) -> Result<(), Com
     }
 }
 
-fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<(Symbol, Const), CompilerError> {
+fn parse_variable(compiler: &mut Compiler, message: &str) -> Result<Symbol, CompilerError> {
     consume(compiler, IDENTIFIER_TTYPE_ID, message)?;
     if let TType::Identifier(str) = &compiler.scanner.previous().kind.clone() {
         compiler.stack.last_mut().unwrap().resolver.declare_variable(str.clone(), compiler.scanner.previous().src.clone())?;
-        Ok((str.clone(), compiler.chunk().add_const(Value::String(str.clone()))))
+        compiler.chunk().add_const(Value::String(str.clone()));
+        Ok(str.clone())
     } else {
         let typ = compiler.scanner.previous().kind.clone().tname();
         Err(CompilerError::new(
@@ -177,11 +177,11 @@ fn block(compiler: &mut Compiler) -> Result<(), CompilerError> {
 }
 
 fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    let (name, _const_ref) = parse_variable(compiler, "Expected to find an identifier after a var")?;
+    let name = parse_variable(compiler, "Expected to find an identifier after a var")?;
     if matches(compiler, TType::Eq.id())? {
         expression(compiler, can_assign)?;
     } else {
-        Nil {}.emit(compiler);
+        Op::Nil.emit(compiler);
     }
     consume(compiler, TType::Semicolon.id(), "Expect ';' after variable declaration")?;
     compiler.stack.last_mut().unwrap().resolver.mark_initialized(name, compiler.scanner.previous().src.clone())?;
@@ -192,7 +192,9 @@ fn var_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<(), CompilerError> {
     consume(compiler, TType::LeftParen.id(), "Expected '(' after function name")?;
 
+
     compiler.stack.push(SubCompiler { chunk: Chunk::new(), resolver: Resolver::new(), upvalues: vec![] });
+    begin_scope(compiler);
 
     let src = compiler.scanner.previous().src.clone();
     compiler.resolver().declare_variable(name.clone(), src.clone())?;
@@ -203,7 +205,7 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
         while matches(compiler, TType::Comma.id())? || first {
             first = false;
             arity += 1;
-            let (_symbol, _name_const) = parse_variable(compiler, "Expected a parameter name here")?;
+            parse_variable(compiler, "Expected a parameter name here")?;
             compiler.resolver().mark_initialized(name.clone(), src.clone())?;
         }
     }
@@ -217,27 +219,27 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
     block(compiler)?;
 
     end_scope(compiler);
-    Nil {}.emit(compiler);
-    Ret {}.emit(compiler);
+    Op::Nil.emit(compiler);
+    Op::Ret.emit(compiler);
 
-    let completed_chunk = compiler.chunk().clone();
-    compiler.stack.pop().unwrap();
+    let popped = compiler.stack.pop().unwrap();
 
-    let func_const = compiler.chunk().add_const(Value::Func(
+    let func_const_idx = compiler.chunk().add_const(Value::Func(
         Func::new(name.clone(),
                   arity,
                   FuncType::Function,
-                  completed_chunk,
-                  0,
+                  popped.chunk.clone(),
+                  popped.upvalues.len(),
         )));
 
-    Closure { idx: func_const.idx }.emit(compiler);
+    // todo: upvalues? popped.upvalues.clone()
+    Op::Closure(func_const_idx, 0).emit(compiler);
     Ok(())
 }
 
 fn fun_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    let (sym, _name_const) = parse_variable(compiler, "Expected to find an identifier after a function")?;
-    let prev_src =compiler.scanner.previous().src.clone();
+    let sym = parse_variable(compiler, "Expected to find an identifier after a function")?;
+    let prev_src = compiler.scanner.previous().src.clone();
     compiler.resolver().mark_initialized(sym.clone(), prev_src)?;
     function(compiler, sym, can_assign)?;
     // func_const.emit(compiler);
@@ -252,7 +254,7 @@ fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compiler
         var_declaration(compiler, can_assign)?;
     } else if matches(compiler, TType::Stack.id())? {
         consume(compiler, TType::Semicolon.id(), "Expected a ';' after stack")?;
-        Stack {}.emit(compiler);
+        Op::Stack.emit(compiler);
     } else {
         statement(compiler, can_assign)?;
     }
@@ -297,21 +299,20 @@ fn for_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compil
     expression(compiler, false)?;
     consume(compiler, TType::Semicolon.id(), "Expected a ';' after for loop test condition")?;
 
-    let test_jump_to_end = RelJumpIfFalse { idx: -1 };
+    let test_jump_to_end = Op::RelJumpIfFalse(1337);
     let test_jump_to_end_write = test_jump_to_end.emit(compiler);
 
-    Pop {}.emit(compiler);
-    let from_test_to_body = RelJump { idx: -1 };
+    Op::Pop.emit(compiler);
+    let from_test_to_body = Op::RelJump(1337);
     let from_test_to_body_write = from_test_to_body.emit(compiler);
 
 
     // increment
     let incr_target = compiler.chunk().len() as i16;
     expression(compiler, true)?;
-    Pop {}.emit(compiler);
-
+    Op::Pop.emit(compiler);
     // Jump from incr to test
-    RelJump { idx: ((test_target as i16) - compiler.chunk().len() as i16) }.emit(compiler);
+    Op::RelJump((test_target as i16) - compiler.chunk().len() as i16).emit(compiler);
 
     consume(compiler, TType::RightParen.id(), "Expected a ')' after a 'for' init, condition, increment")?;
 
@@ -322,8 +323,8 @@ fn for_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compil
     block(compiler)?;
 
     // jump to incr after body
-    RelJump { idx: incr_target - (compiler.chunk().len() as i16) }.emit(compiler);
-    Pop {}.emit(compiler);
+    Op::RelJump( incr_target - (compiler.chunk().len() as i16) ).emit(compiler);
+    Op::Pop.emit(compiler);
 
     // test jump_to end jumps here, the end
     test_jump_to_end.overwrite(compiler.chunk(), &test_jump_to_end_write);
@@ -335,21 +336,21 @@ fn for_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compil
 
 fn and_(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     // FIRST
-    let jf = RelJumpIfFalse { idx: -1 };
+    let jf = Op::RelJumpIfFalse(1337);
     let jf_write = jf.emit(compiler);
-    Pop {}.emit(compiler);
+    Op::Pop.emit(compiler);
     parse_precedence(compiler, Precedence::AND)?;
     jf.overwrite(&mut compiler.chunk(), &jf_write);
     Ok(())
 }
 
 fn or_(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
-    let else_jump = RelJumpIfFalse { idx: -1 };
-    let end_jump = RelJump { idx: -1 };
+    let else_jump = Op::RelJumpIfFalse(1337);
+    let end_jump = Op::RelJump(1337);
     let else_write = else_jump.emit(compiler);
     let end_write = end_jump.emit(compiler);
     else_jump.overwrite(&mut compiler.chunk(), &else_write);
-    Pop {}.emit(compiler);
+    Op::Pop.emit(compiler);
     parse_precedence(compiler, Precedence::OR)?;
     end_jump.overwrite(&mut compiler.chunk(), &end_write);
     Ok(())
@@ -359,18 +360,18 @@ fn or_(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> 
 fn expression_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     expression(compiler, can_assign)?;
     consume(compiler, TType::Semicolon.id(), "Expected ';' after expression.")?;
-    Pop {}.emit(compiler);
+    Op::Pop.emit(compiler);
     Ok(())
 }
 
 fn return_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     if matches(compiler, TType::Semicolon.id())? {
-        Nil {}.emit(compiler);
-        Ret {}.emit(compiler);
+        Op::Nil.emit(compiler);
+        Op::Ret.emit(compiler);
     } else {
         expression(compiler, can_assign)?;
         consume(compiler, TType::Semicolon.id(), "Expected ';' after return value.")?;
-        Ret {}.emit(compiler);
+        Op::Ret.emit(compiler);
     }
     Ok(())
 }
@@ -378,7 +379,7 @@ fn return_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Com
 fn print_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     expression(compiler, can_assign)?;
     consume(compiler, TType::Semicolon.id(), "Expect ';' after value.")?;
-    Print {}.emit(compiler);
+    Op::Print.emit(compiler);
     Ok(())
 }
 
@@ -403,8 +404,8 @@ fn unary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError
     let typ = compiler.scanner.previous().clone();
     parse_precedence(compiler, Precedence::UNARY)?;
     match typ.kind {
-        TType::Minus => Negate {}.write(&mut compiler.chunk(), typ.src),
-        TType::Bang => Not {}.write(&mut compiler.chunk(), typ.src),
+        TType::Minus => Op::Negate.write(&mut compiler.chunk(), typ.src),
+        TType::Bang => Op::Not.write(&mut compiler.chunk(), typ.src),
         _ => panic!("unreachable"),
     };
     Ok(())
@@ -413,12 +414,12 @@ fn unary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError
 fn emit_const(compiler: &mut Compiler, value: Value, src: SourceRef) {
     if let Value::Num(num) = value {
         if (0.0..255.0).contains(&num) {
-            SmallConst { val: num as u8 }.write(&mut compiler.chunk(), src);
+            Op::SmallConst(num as u8).write(&mut compiler.chunk(), src);
             return;
         }
     }
-    let con = compiler.chunk().add_const(value);
-    con.write(&mut compiler.chunk(), src.clone());
+    let con_idx = compiler.chunk().add_const(value);
+    Op::Const(con_idx).write(&mut compiler.chunk(), src.clone());
 }
 
 fn argument_list(compiler: &mut Compiler) -> Result<u8, CompilerError> {
@@ -444,7 +445,7 @@ fn argument_list(compiler: &mut Compiler) -> Result<u8, CompilerError> {
 
 fn call(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     let arity = argument_list(compiler)?;
-    Call { arity }.emit(compiler);
+    Op::Call(arity).emit(compiler);
     Ok(())
 }
 
@@ -473,14 +474,14 @@ fn if_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compile
     consume(compiler, TType::LeftParen.id(), "Expected '(' after if.")?;
     expression(compiler, can_assign)?;
     consume(compiler, TType::RightParen.id(), "Expected ')' after 'if (expression'")?;
-    let if_jump = RelJumpIfFalse { idx: -1 };
+    let if_jump = Op::RelJumpIfFalse(1337);
 
     let if_jump_write: Write = if_jump.emit(compiler);
 
     statement(compiler, can_assign)?;
 
     if matches(compiler, TType::Else.id())? {
-        let if_done_jump = RelJump { idx: -1 };
+        let if_done_jump = Op::RelJump(1337);
         let if_done_jump_write = if_done_jump.emit(compiler);
         if_jump.overwrite(&mut compiler.chunk(), &if_jump_write);
         statement(compiler, can_assign)?;
@@ -499,25 +500,25 @@ fn while_statement(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
     consume(compiler, TType::RightParen.id(), "Expected ')' after while expression.")?;
 
     let chunk_len = compiler.chunk().len();
-    let condition_bytecode = compiler.chunk().code[loop_start..chunk_len].iter().cloned().collect::<Vec<u8>>();
+    let condition_bytecode = compiler.chunk().code[loop_start..chunk_len].iter().cloned().collect::<Vec<Op>>();
 
-    let init_jump_out = RelJumpIfFalse { idx: -1 };
+    let init_jump_out = Op::RelJumpIfFalse(1337);
     let init_jump_out_write = init_jump_out.emit(compiler);
 
     let loop_start = compiler.chunk().len();
-    Pop {}.emit(compiler);
+    Op::Pop.emit(compiler);
 
     statement(compiler, can_assign)?; // body
 
     // write condition a second time
-    for byte in condition_bytecode.iter() {
-        compiler.chunk().code.push(*byte)
+    for op in condition_bytecode.iter() {
+        compiler.chunk().code.push(op.clone())
     }
-    RelJumpIfTrue { idx: (loop_start as i16) - (compiler.chunk().len() as i16) }.emit(compiler);
+    Op::RelJumpIfTrue((loop_start as i16) - (compiler.chunk().len() as i16)).emit(compiler);
 
     init_jump_out.overwrite(compiler.chunk(), &init_jump_out_write);
 
-    Pop {}.emit(compiler);
+    Op::Pop.emit(compiler);
     Ok(())
 }
 
@@ -533,14 +534,14 @@ fn while_statement_slow(compiler: &mut Compiler, can_assign: bool) -> Result<(),
     consume(compiler, TType::LeftParen.id(), "Expected '(' after while.")?;
     expression(compiler, can_assign)?;
     consume(compiler, TType::RightParen.id(), "Expected ')' after while expression.")?;
-    let exit_jump = RelJumpIfFalse { idx: -1 }; // jump to :done if expression is false
+    let exit_jump = Op::RelJumpIfFalse(1337) ; // jump to :done if expression is false
     let exit_jump_write = exit_jump.emit(compiler);
-    Pop {}.emit(compiler); // pop while loop expression
+    Op::Pop.emit(compiler); // pop while loop expression
     statement(compiler, can_assign)?; // body
-    let jump_to_start = RelJump { idx: -((compiler.chunk().len() as i16) - loop_start) };
+    let jump_to_start = Op::RelJump(-((compiler.chunk().len() as i16) - loop_start));
     jump_to_start.emit(compiler); // jump to :start
     exit_jump.overwrite(&mut compiler.chunk(), &exit_jump_write); // :done
-    Pop {}.emit(compiler); // pop while loop expression
+    Op::Pop.emit(compiler); // pop while loop expression
     Ok(())
 }
 
@@ -550,21 +551,21 @@ fn binary(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerErro
     let prec: u8 = rule.precedence as u8;
     parse_precedence(compiler, (prec + 1).into())?;
     match typ.kind {
-        TType::Plus => Add {}.write(&mut compiler.chunk(), typ.src),
-        TType::Minus => Sub {}.write(&mut compiler.chunk(), typ.src),
-        TType::Slash => Div {}.write(&mut compiler.chunk(), typ.src),
-        TType::Star => Mult {}.write(&mut compiler.chunk(), typ.src),
-        TType::BangEq => NotEqual {}.write(&mut compiler.chunk(), typ.src),
-        TType::EqEq => EqualEqual {}.write(&mut compiler.chunk(), typ.src),
-        TType::Less => Less {}.write(&mut compiler.chunk(), typ.src),
-        TType::LessEq => LessOrEq {}.write(&mut compiler.chunk(), typ.src),
+        TType::Plus => Op::Add.write(&mut compiler.chunk(), typ.src),
+        TType::Minus => Op::Sub.write(&mut compiler.chunk(), typ.src),
+        TType::Slash => Op::Div.write(&mut compiler.chunk(), typ.src),
+        TType::Star => Op::Mult.write(&mut compiler.chunk(), typ.src),
+        TType::BangEq => Op::NotEq.write(&mut compiler.chunk(), typ.src),
+        TType::EqEq => Op::EqEq.write(&mut compiler.chunk(), typ.src),
+        TType::Less => Op::LessThan.write(&mut compiler.chunk(), typ.src),
+        TType::LessEq => Op::LessThanEq.write(&mut compiler.chunk(), typ.src),
         TType::Greater => {
-            LessOrEq {}.write(&mut compiler.chunk(), typ.src.clone());
-            Not {}.write(&mut compiler.chunk(), typ.src)
+            Op::LessThanEq.write(&mut compiler.chunk(), typ.src.clone());
+            Op::Not.write(&mut compiler.chunk(), typ.src)
         }
         TType::GreaterEq => {
-            Less {}.write(&mut compiler.chunk(), typ.src.clone());
-            Not {}.write(&mut compiler.chunk(), typ.src)
+            Op::LessThan.write(&mut compiler.chunk(), typ.src.clone());
+            Op::Not.write(&mut compiler.chunk(), typ.src)
         }
         _ => panic!("bad typ"),
     };
@@ -585,9 +586,9 @@ fn string(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerErro
 
 fn literal(compiler: &mut Compiler, _can_assign: bool) -> Result<(), CompilerError> {
     match compiler.scanner.previous().kind {
-        TType::True => True {}.emit(compiler),
-        TType::False => False {}.emit(compiler),
-        TType::Nil => Nil {}.emit(compiler),
+        TType::True => Op::True.emit(compiler),
+        TType::False => Op::False.emit(compiler),
+        TType::Nil => Op::Nil.emit(compiler),
         _ => panic!("not a literal!"),
     };
     Ok(())
@@ -597,12 +598,12 @@ fn variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerErr
     named_variable(compiler, can_assign)
 }
 
-fn get_or_set<'a, Get: OpU8, Set: OpU8>(compiler: &mut Compiler, can_assign: bool, _name: &Symbol, idx: u8) -> Result<(), CompilerError> {
+fn get_or_set(compiler: &mut Compiler, can_assign: bool, _name: &Symbol, idx: u8) -> Result<(), CompilerError> {
     if can_assign && matches(compiler, TType::Eq.id())? {
         expression(compiler, can_assign)?;
-        Set::emit_u8(compiler, idx);
+        Op::SetLocal(idx).emit(compiler);
     } else {
-        Get::emit_u8(compiler, idx);
+        Op::GetLocal(idx).emit(compiler);
     }
     Ok(())
 }
@@ -610,8 +611,13 @@ fn get_or_set<'a, Get: OpU8, Set: OpU8>(compiler: &mut Compiler, can_assign: boo
 fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     let name = if let TType::Identifier(str) = &compiler.scanner.previous().kind.clone() { str.clone() } else { panic!("Compiler error"); };
     let prev = compiler.scanner.previous().src.clone();
-    let resolution = compiler.resolver().resolve_local(&name, &prev)?;
-    get_or_set::<GetLocal, SetLocal>(compiler, can_assign, &name, resolution)?;
+    match compiler.resolver().resolve_local(&name, &prev) {
+        None => {
+            let idx = resolve_upvalue(compiler, &name, &prev)?;
+            // todo: get or set upvalues
+        },
+        Some(idx) => get_or_set(compiler, can_assign, &name, idx)?,
+    };
     Ok(())
 }
 

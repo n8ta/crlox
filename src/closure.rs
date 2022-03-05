@@ -19,7 +19,11 @@ impl Debug for RtClosure {
 
 impl RtClosure {
     pub fn new(func: Func) -> Self {
-        RtClosure { func, upvalues: Vec::new() }
+        let mut upvalues = vec![];
+        for _ in 0..func.num_upvalues {
+            upvalues.push(Rc::new(Value::Nil))
+        }
+        RtClosure { func, upvalues }
     }
 }
 

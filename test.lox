@@ -1,6 +1,5 @@
-var x = 1;
-while (x < 5) {
-    print x;
-    x = x + 1;
+if (false) {
+print "trueee";
+} else {
+print "falsee";
 }
-print "done";

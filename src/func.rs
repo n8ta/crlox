@@ -34,7 +34,7 @@ pub struct FuncInner {
     pub chunk: Chunk,
     pub arity: u8,
     pub ftype: FuncType,
-    pub upvalues: usize,
+    pub num_upvalues: usize,
 }
 
 impl Func {
@@ -44,7 +44,7 @@ impl Func {
             chunk,
             arity: 0,
             ftype: FuncType::Script,
-            upvalues: 0,
+            num_upvalues: 0,
         }));
         Func {
             inner,
@@ -56,7 +56,7 @@ impl Func {
             chunk,
             arity,
             ftype,
-            upvalues,
+            num_upvalues: upvalues,
         }));
 
         Func {
