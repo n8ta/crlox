@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::io::Read;
 use std::process::exit;
+use std::rc::Rc;
 use crate::chunk::Chunk;
 use crate::source_ref::SourceRef;
 use crate::vm::{VM};

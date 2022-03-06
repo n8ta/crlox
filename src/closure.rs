@@ -1,14 +1,28 @@
+use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 use crate::func::Func;
 use crate::value::Value;
 
+pub type UpvalueList = Vec<Rc<RefCell<WrappedValue>>>;
+
+#[derive(Debug)]
+pub struct WrappedValue {
+    pub inner_value: Value,
+}
+
 /// Runtime closure
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct RtClosure {
     pub func: Func,
-    pub upvalues: Vec<Rc<Value>>,
+    pub upvalues: UpvalueList,
+}
+
+impl PartialEq for RtClosure {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
 }
 
 impl Debug for RtClosure {
@@ -19,9 +33,9 @@ impl Debug for RtClosure {
 
 impl RtClosure {
     pub fn new(func: Func) -> Self {
-        let mut upvalues = vec![];
+        let mut upvalues: UpvalueList = vec![];
         for _ in 0..func.upvalues.len() {
-            upvalues.push(Rc::new(Value::Nil))
+            upvalues.push(Rc::new(RefCell::new(WrappedValue{inner_value: Value::Nil})))
         }
         RtClosure { func, upvalues }
     }

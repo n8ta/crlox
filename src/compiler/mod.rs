@@ -259,7 +259,6 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
                   popped.upvalues.clone(),
         )));
 
-    // todo: upvalues? popped.upvalues.clone()
     Op::Closure(func_const_idx).emit(compiler);
     Ok(())
 }
@@ -656,10 +655,18 @@ pub fn resolve_upvalue(compiler: &mut Compiler, name: &Symbol, src: &SourceRef) 
     let mut ret = None;
     for (stack_idx, stack) in compiler.stack.iter_mut().enumerate().rev() {
         if let Some(idx) = stack.resolver.resolve_local(name, src) {
-            stack.upvalues.push(Upvalue::Root(idx));
+            let new_up = Upvalue::Root(idx);
+            if let Some((idx,up)) = stack.upvalues.iter().enumerate().find(|(idx,up)| *up == &new_up) {
+                ret = Some(idx as u8);
+            } else {
+                stack.upvalues.push(new_up);
+                ret = Some(((stack.upvalues.len() - 1) as u8));
+
+            }
             found_at = stack_idx;
-            ret = Some(((stack.upvalues.len() - 1) as u8));
             break
+
+
         }
         // todo: Put duplicate check back
     }

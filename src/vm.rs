@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
@@ -6,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ops::{Op};
 use crate::value::Value;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
+use crate::closure::WrappedValue;
 use crate::compiler::Upvalue;
 use crate::func::Func;
 use crate::native_func::NativeFunc;
@@ -280,18 +282,24 @@ impl VM {
     }
 
     fn set_up_value(&mut self, idx: u8) -> Result<(), InterpError> {
-        self.frame.closure.upvalues[idx as usize] = Rc::new(self.peek().clone());
+        debug_println!("Setting up value to {:?}", self.peek().clone());
+        let new = self.peek().clone();
+        {
+            let mut inner = self.frame.closure.upvalues[idx as usize].borrow_mut();
+            inner.inner_value = new;
+        }
         self.bump_ip();
         Ok(())
     }
 
     fn get_up_value(&mut self, idx: u8) -> Result<(), InterpError> {
-        self.push((*self.frame.closure.upvalues[idx as usize].clone()).clone());
+        let value = self.frame.closure.upvalues[idx as usize].borrow().inner_value.clone();
+        self.push(value);
         self.bump_ip();
         Ok(())
     }
 
-    fn capture_upvalue(&mut self, idx: u8) -> Rc<Value> {
+    fn capture_upvalue(&mut self, idx: u8) -> Rc<RefCell<WrappedValue>> {
         debug_println!("Capturing {:?} closure upvalues len {}", self.frame.closure.upvalues.get(idx as usize), self.frame.closure.upvalues.len());
         debug_println!("Func upvalues len: {:?}", self.frame.closure.func.upvalues);
         self.frame.closure.upvalues[idx as usize].clone()
