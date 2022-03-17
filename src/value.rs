@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use crate::class::Class;
 use crate::func::Func;
 use crate::native_func::NativeFunc;
 use crate::Symbol;
@@ -13,6 +14,8 @@ pub enum Value {
     Func(Func),
     Native(NativeFunc),
     Closure(RtClosure),
+    Class(Class),
+    Instance(Class),
 }
 
 impl Value {
@@ -25,6 +28,8 @@ impl Value {
             Value::Func(_) => "fn",
             Value::Native(_) => "native fn",
             Value::Closure(_) => "closure",
+            Value::Class(_) => "class",
+            Value::Instance(_) => "instance",
         }
     }
     pub fn truthy(&self) -> bool {
@@ -35,6 +40,8 @@ impl Value {
             Value::Func(_) => true,
             Value::Native(_) => true,
             Value::Closure(_) => true,
+            Value::Class(_) => true,
+            Value::Instance(_) => true,
             _ => true,
         }
     }
@@ -54,7 +61,9 @@ impl Display for Value {
             Value::String(s) => f.write_str(&format!("{}", s)),
             Value::Func(lfn) => f.write_str(&format!("fn-{}[{}]", lfn.name, lfn.arity)),
             Value::Native(nfn) => f.write_str(&format!("native-[{}]{}", nfn.name, nfn.arity)),
-            Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name, c.arity))
+            Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name, c.arity)),
+            Value::Class(class) => f.write_str(&format!("class-{}",class.name())),
+            Value::Instance(inst) => f.write_str(&format!("instance-{}",inst.name())),
         }
     }
 }

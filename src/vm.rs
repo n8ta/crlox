@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ops::{Op};
 use crate::value::Value;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
+use crate::class::Class;
 use crate::closure::WrappedValue;
 use crate::compiler::Upvalue;
 use crate::func::Func;
@@ -161,7 +162,7 @@ impl VM {
         loop {
             let ip = self.frame.ip;
 
-            debug_println!("{} {}", ip, self.frame.closure.chunk.code.get(ip).unwrap());
+            debug_println!("====================\n{} {}", ip, self.frame.closure.chunk.code.get(ip).unwrap());
             match self.frame.closure.chunk.code.get(ip).unwrap() {
                 Op::Ret => {
                     #[cfg(debug_assertions)]
@@ -277,8 +278,21 @@ impl VM {
                 Op::SetUpvalue(idx) => {
                     self.set_up_value(*idx)?;
                 }
+                Op::Class(idx) => {
+                    self.class(*idx)?;
+                }
             };
         }
+    }
+
+    fn class(&mut self, idx: u8) -> Result<(), InterpError> {
+        if let Value::String(sym) = &self.frame.closure.chunk.constants[idx as usize] {
+            self.push(Value::Class(Class::new(sym.clone())))
+        }  else {
+            panic!("Compiler error, class_idx should be a string in the constant array")
+        }
+        self.bump_ip();
+        Ok(())
     }
 
     fn set_up_value(&mut self, idx: u8) -> Result<(), InterpError> {
@@ -511,13 +525,12 @@ impl VM {
         let peeked = self.peek_at((self.stack.len() - self.frame.frame_offset - (arity as usize) - 1) as u8)?;
         match peeked {
             Value::Closure(closure) => {
+                debug_println!("{:?}", closure.func);
                 debug_println!("Upvalues: {:?}", closure.func.upvalues);
                 if arity != closure.arity {
                     return Err(InterpError::runtime(Some(self.frame.closure.chunk.get_source(self.frame.ip).unwrap().clone()), format!("Function {} expects {} arguments but got {}", closure.name, closure.arity, arity)));
                 }
-                debug_println!("new func disass {}", closure.func.name);
-                #[cfg(debug_assertions)]
-                closure.chunk.disassemble();
+
 
                 let frame_offset = self.stack.len() - (arity as usize) - 1;
                 debug_println!("Frame offset is len({}) - arity({}) - 1 == {}" ,self.stack.len(), arity, frame_offset);

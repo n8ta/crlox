@@ -2,8 +2,7 @@ mod rules;
 mod resolver;
 mod error;
 
-use std::collections::{HashMap, HashSet};
-use std::fs::copy;
+use std::collections::{HashMap};
 use error::CompilerError;
 
 use std::mem::{swap};
@@ -33,7 +32,6 @@ pub struct SubCompiler {
 pub struct Compiler {
     rules: Rules,
     scanner: Scanner,
-    symbolizer: Symbolizer,
     panic_mode: bool,
     had_error: Option<CompilerError>,
     stack: Vec<SubCompiler>,
@@ -45,7 +43,7 @@ impl<'a> Compiler {
     }
     pub fn compile(src: String, symbolizer: Symbolizer) -> Result<Func, CompilerError> {
         let scanner = Scanner::new(src.clone(), symbolizer.clone());
-        let mut compiler = Compiler::new(src, symbolizer, scanner);
+        let mut compiler = Compiler::new( scanner);
         Ok(Func::global(compiler.run()?))
     }
     pub fn chunk(&mut self) -> &mut Chunk {
@@ -57,13 +55,12 @@ impl<'a> Compiler {
     pub fn upvalues(&mut self) -> &mut Vec<Upvalue> {
         &mut self.stack.last_mut().unwrap().upvalues
     }
-    fn new(_src: String, symbolizer: Symbolizer, scanner: Scanner) -> Compiler {
+    fn new(scanner: Scanner) -> Compiler {
         Compiler {
             stack: vec![SubCompiler { upvalues: vec![], chunk: Chunk::new(), resolver: Resolver::new() }],
             scanner,
             panic_mode: false,
             had_error: None,
-            symbolizer,
             rules: Rules::new(),
         }
     }
@@ -263,6 +260,23 @@ fn function(compiler: &mut Compiler, name: Symbol, _can_assign: bool) -> Result<
     Ok(())
 }
 
+fn class_declaration(compiler: &mut Compiler) -> Result<(),CompilerError> {
+    consume(compiler, IDENTIFIER_TTYPE_ID, "Expected to find an identifier after a class")?;
+
+    let ident = compiler.scanner.previous().kind.clone();
+    if let TType::Identifier(sym) = ident {
+        let idx =  compiler.chunk().add_const(Value::String(sym.clone()));
+        let prev = compiler.scanner.previous().src.clone();
+        compiler.resolver().declare_variable(sym, prev)?;
+        Op::Class(idx).emit(compiler);
+        consume(compiler, TType::LeftBrace.id(), "Expected '{' after class declaration")?;
+        consume(compiler, TType::RightBrace.id(), "Expected '}' after class declaration")?;
+    } else {
+        panic!("shouldn't happen due to consume before this");
+    };
+    Ok(())
+}
+
 fn fun_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
     let sym = parse_variable(compiler, "Expected to find an identifier after a function")?;
     let prev_src = compiler.scanner.previous().src.clone();
@@ -274,7 +288,9 @@ fn fun_declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), Comp
 }
 
 fn declaration(compiler: &mut Compiler, can_assign: bool) -> Result<(), CompilerError> {
-    if matches(compiler, TType::Fun.id())? {
+    if matches(compiler, TType::Class.id())? {
+        class_declaration(compiler)?;
+    } else if matches(compiler, TType::Fun.id())? {
         fun_declaration(compiler, can_assign)?;
     } else if matches(compiler, TType::Var.id())? {
         var_declaration(compiler, can_assign)?;
@@ -656,12 +672,11 @@ pub fn resolve_upvalue(compiler: &mut Compiler, name: &Symbol, src: &SourceRef) 
     for (stack_idx, stack) in compiler.stack.iter_mut().enumerate().rev() {
         if let Some(idx) = stack.resolver.resolve_local(name, src) {
             let new_up = Upvalue::Root(idx);
-            if let Some((idx,up)) = stack.upvalues.iter().enumerate().find(|(idx,up)| *up == &new_up) {
+            if let Some((idx,_up)) = stack.upvalues.iter().enumerate().find(|(_idx,up)| *up == &new_up) {
                 ret = Some(idx as u8);
             } else {
                 stack.upvalues.push(new_up);
-                ret = Some(((stack.upvalues.len() - 1) as u8));
-
+                ret = Some((stack.upvalues.len() - 1) as u8);
             }
             found_at = stack_idx;
             break
@@ -676,8 +691,8 @@ pub fn resolve_upvalue(compiler: &mut Compiler, name: &Symbol, src: &SourceRef) 
         let mut parent_idx = ret;
         debug_println!("Found at {} ret {:?}", found_at, ret);
         let total_len = compiler.stack.len();
-        for (stack_idx, stack) in compiler.stack.iter_mut().enumerate().skip(found_at+1).take(total_len) {
-            debug_println!("Adding from parent up value to stack idx {}", stack_idx);
+        for (_stack_idx, stack) in compiler.stack.iter_mut().enumerate().skip(found_at+1).take(total_len) {
+            debug_println!("Adding from parent up value to stack idx {}", _stack_idx);
             stack.upvalues.push(Upvalue::FromParent(parent_idx));
             parent_idx = (stack.upvalues.len() - 1) as u8;
         }
@@ -692,11 +707,9 @@ fn named_variable(compiler: &mut Compiler, can_assign: bool) -> Result<(), Compi
     let prev = compiler.scanner.previous().src.clone();
     match resolve(compiler, &name, &prev)? {
         Resolution::Local(idx) => {
-            debug_println!("Resolved {} as local", name);
             get_or_set(compiler, can_assign, idx, |idx: u8| Op::GetLocal(idx), |idx: u8| Op::SetLocal(idx))?
         }
         Resolution::Upvalue(up_idx) => {
-            debug_println!("Resolved {} as upval", name);
             get_or_set(compiler, can_assign, up_idx, |idx: u8| Op::GetUpvalue(idx), |idx: u8| Op::SetUpvalue(idx))?
         }
     }

@@ -1,0 +1,23 @@
+fun a() {
+    fun b() {
+        var pre = 0;
+        var x = 1;
+        fun c() {
+            var cc = 123;
+            fun d() {
+                var yy = cc + pre;
+                fun e() {
+                    print "I am e";
+                    x = x + 1;
+                    return x + 100;
+                }
+                return e;
+            }
+            return d;
+        }
+        return c;
+    }
+    return b;
+}
+
+print a()()()()();

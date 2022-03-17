@@ -1,13 +1,5 @@
-fun makeCounter() {
-  var i = 0;
-  fun count() {
-    i = i + 1;
-    print i;
-  }
-
-  return count;
+var x = 0;
+while (x < 2) {
+    x = x + 1;
 }
-
-var counter = makeCounter();
-counter();
-counter();
+print x;

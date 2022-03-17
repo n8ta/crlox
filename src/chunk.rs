@@ -1,4 +1,7 @@
-use crate::{debug_println, SourceRef};
+#[cfg(debug_assertions)]
+use crate::debug_println;
+
+use crate::{SourceRef};
 use crate::ops::Op;
 use crate::value::Value;
 
@@ -36,11 +39,6 @@ impl Chunk {
         self.code[write.start] = op
     }
     pub fn new() -> Chunk { Chunk { code: vec![], sources: vec![], constants: vec![] } }
-    pub fn disassemble(&self) {
-        for (idx, op) in self.code.iter().enumerate() {
-            debug_println!("{}-{}", idx, op);
-        }
-    }
 
     pub fn get_source(&self, code_idx: usize) -> Option<&SourceRef> {
         self.sources.get(code_idx)

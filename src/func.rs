@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 use crate::{Chunk, Symbol, Value};
+use crate::ops::print_ops;
 
 #[derive(Clone)]
 pub struct Func {
@@ -14,9 +15,8 @@ impl Debug for Func {
     /// Hope there's no loops!
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!("func<{}>\n", self.inner.name))?;
-        for (idx, op) in self.chunk.code.iter().enumerate() {
-            f.write_str(&format!("{}: {}\n", idx, op))?;
-        }
+        f.write_str(&format!("{}", print_ops(&self.chunk.code)))?;
+
         f.write_str("\n")?;
         for constant in self.chunk.constants.iter() {
             if let Value::Func(const_func) = constant {

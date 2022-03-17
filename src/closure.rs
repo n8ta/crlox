@@ -21,7 +21,12 @@ pub struct RtClosure {
 
 impl PartialEq for RtClosure {
     fn eq(&self, other: &Self) -> bool {
-        false
+        let mut eq = self.func == other.func && self.upvalues.len() == other.upvalues.len();
+        if !eq { return false; }
+        for (a,b) in self.upvalues.iter().zip(other.upvalues.iter()) {
+            eq = eq && Rc::ptr_eq(a,b);
+        }
+        eq
     }
 }
 

@@ -1,5 +1,5 @@
-use crate::{Compiler, SourceRef, Symbol};
-use crate::compiler::{CompilerError, Upvalue};
+use crate::{SourceRef, Symbol};
+use crate::compiler::{CompilerError};
 
 #[derive(Debug, Clone)]
 pub struct Local {
@@ -29,7 +29,7 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    pub fn resolve_local(&self, name: &Symbol, src: &SourceRef) -> Option<u8> {
+    pub fn resolve_local(&self, name: &Symbol, _src: &SourceRef) -> Option<u8> {
         let flat = flat(&self.scopes);
         if let Some((idx, _local)) = flat.iter().enumerate().rev().find(|(_, local)| &local.name == name) {
             Some(idx as u8)
