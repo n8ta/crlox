@@ -26,8 +26,15 @@ impl Chunk {
         self.code.len()
     }
     pub fn add_const(&mut self, constant: Value) -> u8 {
-        self.constants.push(constant);
-        (self.constants.len() - 1) as u8
+        match self.constants.iter().enumerate().find(|(idx,c)| **c == constant) {
+            None => {
+                self.constants.push(constant);
+                (self.constants.len() - 1) as u8
+            }
+            Some((idx,_)) => {
+                idx as u8
+            }
+        }
     }
     pub fn add(&mut self, op: Op, src: SourceRef) -> Write {
         let idx = self.code.len();

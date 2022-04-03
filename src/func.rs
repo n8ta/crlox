@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 use crate::{Chunk, Symbol, Value};
+use crate::ast::parser_func::Upvalue;
 use crate::ops::print_ops;
 
 #[derive(Clone)]
@@ -48,7 +49,7 @@ pub struct FuncInner {
     pub chunk: Chunk,
     pub arity: u8,
     pub ftype: FuncType,
-    pub upvalues: Vec<crate::compiler::Upvalue>,
+    pub upvalues: Vec<Upvalue>,
 
 }
 
@@ -58,14 +59,14 @@ impl Func {
             name: Symbol { sym: Rc::new(format!("Main function body")) },
             chunk,
             arity: 0,
-            ftype: FuncType::Script,
+            ftype: FuncType::Function,
             upvalues: vec![],
         }));
         Func {
             inner,
         }
     }
-    pub fn new(name: Symbol, arity: u8, ftype: FuncType, chunk: Chunk, upvalues: Vec<crate::compiler::Upvalue>) -> Func {
+    pub fn new(name: Symbol, arity: u8, ftype: FuncType, chunk: Chunk, upvalues: Vec<Upvalue>) -> Func {
         let inner: &'static FuncInner = Box::leak(Box::new(FuncInner {
             name,
             chunk,
@@ -82,6 +83,6 @@ impl Func {
 
 #[derive(Debug)]
 pub enum FuncType {
+    Method,
     Function,
-    Script,
 }

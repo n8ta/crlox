@@ -19,6 +19,9 @@ impl Token {
     pub fn new(kind: TType, src: SourceRef) -> Token {
         Token { kind, src }
     }
+    pub fn new_src(ttype: TType, offset: usize, len: usize, line: usize, src: Rc<Source>) -> Token {
+        Token { kind: ttype, src: SourceRef::new(offset, len, line, src) }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -85,6 +88,7 @@ pub enum TType {
     Stack,
 }
 
+pub const NUMBER_TTYPE_ID: TTypeId = 21;
 pub const IDENTIFIER_TTYPE_ID: TTypeId = 19;
 pub const STRING_TTYPE_ID: TTypeId = 20;
 pub const ERROR_TTYPE_ID: TTypeId = 38;
@@ -207,7 +211,7 @@ impl TType {
             TType::LessEq => 18,
             TType::Identifier(_) => IDENTIFIER_TTYPE_ID,
             TType::String(_) => STRING_TTYPE_ID,
-            TType::Number(_) => 21,
+            TType::Number(_) => NUMBER_TTYPE_ID,
             TType::And => 22,
             TType::Class => 23,
             TType::Else => 24,

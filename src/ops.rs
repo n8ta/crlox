@@ -4,7 +4,8 @@
 
 use std::fmt::{Display, Formatter};
 use crate::chunk::Write;
-use crate::{Chunk, Compiler, SourceRef};
+use crate::{Chunk, Source, SourceRef};
+use crate::compiler_ast::Compiler;
 
 #[derive(Clone, Debug)]
 pub enum Op {
@@ -37,6 +38,9 @@ pub enum Op {
     Stack,
     RelJumpIfTrue(i16),
     Class(u8),
+    SetProperty(u8),
+    GetProperty(u8),
+    Method(u8)
 }
 
 impl Op {
@@ -44,7 +48,7 @@ impl Op {
         chunk.add(self, src)
     }
     pub(crate) fn emit(&self, compiler: &mut Compiler) -> Write {
-        let prev = compiler.prev_source();
+        let prev = SourceRef::simple();
         compiler.chunk().add(self.clone(), prev)
     }
     pub(crate) fn overwrite(&self, chunk: &mut Chunk, write: &Write) {
@@ -71,36 +75,39 @@ impl Op {
 impl Display for Op {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-                Op::Ret => "Ret".to_string(),
-                Op::Const(_) => "Const".to_string(),
-                Op::Negate => "Negate".to_string(),
-                Op::Add => "Add".to_string(),
-                Op::Sub => "Sub".to_string(),
-                Op::Mult => "Mult".to_string(),
-                Op::Div => "Div".to_string(),
-                Op::True => "True".to_string(),
-                Op::False => "False".to_string(),
-                Op::Nil => "Nil".to_string(),
-                Op::Not => "Not".to_string(),
-                Op::EqEq => "EqEq".to_string(),
-                Op::NotEq => "NotEq".to_string(),
-                Op::LessThan => "LessThan".to_string(),
-                Op::LessThanEq => "LessThanEq".to_string(),
-                Op::Print => "Print".to_string(),
-                Op::Pop => "Pop".to_string(),
-                Op::GetLocal(idx) => format!("GetLocal idx-{}", idx),
-                Op::SetLocal(idx) => format!("SetLocal idx-{}", idx),
-                Op::GetUpvalue(idx) => format!("GetUpvalue idx-{}", idx),
-                Op::SetUpvalue(idx) => format!("SetUpvalue idx-{}", idx),
-                Op::RelJumpIfFalse(offset) => format!("RelJumpIfFalse offset:{}", offset),
-                Op::RelJump(offset) => format!("RelJump offset:{}", offset),
-                Op::Call(arity) => format!("Call arity-{}", arity),
-                Op::SmallConst(val) => format!("SmallConst val-{}", val),
-                Op::Closure(func_idx) => format!("Closure funcidx {}", func_idx),
-                Op::Stack => "Stack".to_string(),
-                Op::RelJumpIfTrue(offset) => format!("RelJumpIfTrue offset:{}", offset),
-                Op::Class(idx) => format!("Class idx-{}", idx),
-            };
+            Op::Ret => "Ret".to_string(),
+            Op::Const(_) => "Const".to_string(),
+            Op::Negate => "Negate".to_string(),
+            Op::Add => "Add".to_string(),
+            Op::Sub => "Sub".to_string(),
+            Op::Mult => "Mult".to_string(),
+            Op::Div => "Div".to_string(),
+            Op::True => "True".to_string(),
+            Op::False => "False".to_string(),
+            Op::Nil => "Nil".to_string(),
+            Op::Not => "Not".to_string(),
+            Op::EqEq => "EqEq".to_string(),
+            Op::NotEq => "NotEq".to_string(),
+            Op::LessThan => "LessThan".to_string(),
+            Op::LessThanEq => "LessThanEq".to_string(),
+            Op::Print => "Print".to_string(),
+            Op::Pop => "Pop".to_string(),
+            Op::GetLocal(idx) => format!("GetLocal idx-{}", idx),
+            Op::SetLocal(idx) => format!("SetLocal idx-{}", idx),
+            Op::GetUpvalue(idx) => format!("GetUpvalue idx-{}", idx),
+            Op::SetUpvalue(idx) => format!("SetUpvalue idx-{}", idx),
+            Op::RelJumpIfFalse(offset) => format!("RelJumpIfFalse offset:{}", offset),
+            Op::RelJump(offset) => format!("RelJump offset:{}", offset),
+            Op::Call(arity) => format!("Call arity-{}", arity),
+            Op::SmallConst(val) => format!("SmallConst val-{}", val),
+            Op::Closure(func_idx) => format!("Closure funcidx {}", func_idx),
+            Op::Stack => "Stack".to_string(),
+            Op::RelJumpIfTrue(offset) => format!("RelJumpIfTrue offset:{}", offset),
+            Op::Class(idx) => format!("Class idx-{}", idx),
+            Op::SetProperty(idx) => format!("SetProp idx-{}", idx),
+            Op::GetProperty(idx) => format!("GetPrp idx-{}", idx),
+            Op::Method(idx) => format!("Method idx-{}", idx),
+        };
         f.write_str(&s)
     }
 }
@@ -138,6 +145,9 @@ pub fn print_ops(ops: &Vec<Op>) -> String {
             Op::Stack => "Stack".to_string(),
             Op::RelJumpIfTrue(offset) => format!("RelJumpIfTrue to:{}", (ip as i64) + (*offset as i64)),
             Op::Class(idx) => format!("Class idx-{}", idx),
+            Op::SetProperty(idx) => format!("SetProp idx-{}", idx),
+            Op::GetProperty(idx) => format!("GetPrp idx-{}", idx),
+            Op::Method(idx) => format!("Method idx-{}", idx),
         };
         res.push_str(&format!("{} ", ip));
         res.push_str(&s);

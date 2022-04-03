@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
-use crate::class::Class;
+use crate::bound::BoundClosure;
+use crate::class::{Class, Instance};
 use crate::func::Func;
 use crate::native_func::NativeFunc;
 use crate::Symbol;
@@ -14,8 +15,9 @@ pub enum Value {
     Func(Func),
     Native(NativeFunc),
     Closure(RtClosure),
+    BoundClosure(BoundClosure),
     Class(Class),
-    Instance(Class),
+    Instance(Instance),
 }
 
 impl Value {
@@ -30,6 +32,7 @@ impl Value {
             Value::Closure(_) => "closure",
             Value::Class(_) => "class",
             Value::Instance(_) => "instance",
+            Value::BoundClosure(_) => "bound-closure",
         }
     }
     pub fn truthy(&self) -> bool {
@@ -42,6 +45,7 @@ impl Value {
             Value::Closure(_) => true,
             Value::Class(_) => true,
             Value::Instance(_) => true,
+            Value::BoundClosure(_) => true,
             _ => true,
         }
     }
@@ -64,6 +68,7 @@ impl Display for Value {
             Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name, c.arity)),
             Value::Class(class) => f.write_str(&format!("class-{}",class.name())),
             Value::Instance(inst) => f.write_str(&format!("instance-{}",inst.name())),
+            Value::BoundClosure(bc) => f.write_str(&format!("bound-closure-{}", bc.name()))
         }
     }
 }

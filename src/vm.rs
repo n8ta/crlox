@@ -1,17 +1,20 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::iter::Copied;
 use std::mem::swap;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ops::{Op};
 use crate::value::Value;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
-use crate::class::Class;
+use crate::ast::parser_func::Upvalue;
+use crate::class::{Class, Instance};
 use crate::closure::WrappedValue;
-use crate::compiler::Upvalue;
 use crate::func::Func;
 use crate::native_func::NativeFunc;
+use crate::source_ref::Source;
+use crate::vm::InterpErrorType::CompilerError;
 
 #[derive(Debug)]
 pub enum InterpErrorType {
@@ -94,10 +97,16 @@ impl VM {
         vm.run()
     }
 
+    fn curr_source(&self) -> Option<&SourceRef> {
+        self.frame.closure.chunk.get_source(self.frame.ip)
+    }
+
     #[cfg(debug_assertions)]
     fn print_stack_frame(&self, msg: &str) {
         debug_println!("{} {:?}", msg, &self.stack);
-        debug_println!("\t{:?}", &self.stack[self.frame.frame_offset..self.stack.len()]);
+        if self.frames.len() != 0 {
+            debug_println!("\t{:?}", &self.stack[self.frame.frame_offset..self.stack.len()]);
+        }
     }
     fn debug_stack(&self, msg: &str) {
         println!("{} {:?}", msg, &self.stack);
@@ -119,9 +128,8 @@ impl VM {
     }
 
     fn peek_at(&self, idx: u8) -> Result<Value, InterpError> {
-
         #[cfg(debug_assertions)]
-            self.print_stack_frame(&format!("peek at stack idx-{} frame-{}: ", idx, self.frame.frame_offset));
+        self.print_stack_frame(&format!("peek at stack idx-{} frame-{}: ", idx, self.frame.frame_offset));
 
         match self.stack.get(self.frame.frame_offset + idx as usize) {
             None => panic!("bad stack access idx-{} offset-{}", idx, self.frame.frame_offset),
@@ -181,10 +189,9 @@ impl VM {
 
                         #[cfg(debug_assertions)]
                         self.print_stack_frame("Post ret stack");
-
                     } else {
                         #[cfg(debug_assertions)]
-                            self.print_stack_frame("Final return stack");
+                        self.print_stack_frame("Final return stack");
                         return Ok(Value::Nil);
                     }
                 }
@@ -281,15 +288,100 @@ impl VM {
                 Op::Class(idx) => {
                     self.class(*idx)?;
                 }
+                Op::SetProperty(idx) => {
+                    self.set_prop(*idx)?;
+                }
+                Op::GetProperty(idx) => {
+                    self.get_prop(*idx)?;
+                }
+                Op::Method(class_idx_in_const_arr) => {
+                    self.method(*class_idx_in_const_arr)?;
+                }
             };
         }
     }
 
+    fn method(&mut self, class_idx_in_const_arr: u8) -> Result<(), InterpError> {
+        let method = if let Value::Closure(clos) = self.peek() {
+            clos.clone()
+        } else {
+            return Err(InterpError::compile(self.curr_source().cloned(), format!("Expected a closure on the stack for the method name found a {}", self.peek().tname())));
+        };
+        let cls = if let Value::Class(cls) = self.peek_at(1)? {
+            cls
+        } else {
+            return Err(InterpError::compile(self.curr_source().cloned(), format!("Expected a class @ idx1 on the stack when defining a method")));
+        };
+        cls.add_method(method);
+        self.bump_ip();
+        Ok(())
+    }
+
+    fn get_const(&self, idx: u8) -> Result<Value, InterpError> {
+        match self.frame.closure.chunk.constants.get(idx as usize) {
+            Some(v) => Ok(v.clone()),
+            None => Err(InterpError::compile(self.curr_source().cloned(), format!("Unable to find constant at index {}", idx)))
+        }
+    }
+
+    fn get_const_str(&self, idx: u8) -> Result<Symbol, InterpError> {
+        if let Value::String(sym) = self.get_const(idx)? {
+            Ok(sym.clone())
+        } else {
+            Err(InterpError::compile(
+                self.curr_source().cloned(),
+                format!("Expected a string at idx {} in the constants array", idx)))
+        }
+    }
+
+    fn peek_inst(&self, idx: u8) -> Result<Instance, InterpError> {
+        match self.peek_at(idx) {
+            Ok(value) => {
+                if let Value::Instance(inst) = value {
+                    Ok(inst)
+                } else {
+                    Err(InterpError::runtime(self.curr_source().cloned(), format!("Can only set fields on a class instance not a {}", value.tname())))
+                }
+            }
+            Err(_) => {
+                Err(InterpError::compile(self.curr_source().cloned(), format!("Stack idx {} doesnt' exist", idx)))
+            }
+        }
+    }
+
+    fn get_prop(&mut self, idx: u8) -> Result<(), InterpError> {
+        let field = self.get_const_str(idx)?;
+        let inst = self.peek();
+        if let Value::Instance(inst) = inst {
+            match inst.get_prop(&field) {
+                None => Err(InterpError::runtime(
+                    self.curr_source().cloned(),
+                    format!("Field {} doesn't exist on instance of {}", field, inst.name()))),
+                Some(v) => {
+                    self.pop();
+                    self.push(v);
+                    self.bump_ip();
+                    Ok(())
+                }
+            }
+        } else {
+            Err(InterpError::compile(self.curr_source().cloned(), format!("expected an instance not a {}", inst.tname())))
+        }
+    }
+
+    fn set_prop(&mut self, idx: u8) -> Result<(), InterpError> {
+        let field = self.get_const_str(idx)?;
+        let inst = self.peek_inst(1)?;
+        inst.set_prop(&field, self.pop()?);
+        self.bump_ip();
+        Ok(())
+    }
+
     fn class(&mut self, idx: u8) -> Result<(), InterpError> {
         if let Value::String(sym) = &self.frame.closure.chunk.constants[idx as usize] {
-            self.push(Value::Class(Class::new(sym.clone())))
-        }  else {
-            panic!("Compiler error, class_idx should be a string in the constant array")
+            self.push(Value::Class(Class::new(sym.clone())));
+        } else {
+            return Err(InterpError::compile(self.curr_source().cloned(), "Compiler error, class_idx should be a string in the constant array".to_string()));
         }
         self.bump_ip();
         Ok(())
@@ -339,7 +431,9 @@ impl VM {
             self.bump_ip();
             Ok(())
         } else {
-            panic!("Compile error: While making a closure expected a function on the stack but found a {}", func.tname())
+            Err(InterpError::compile(
+                self.curr_source().cloned(),
+                format!("Compile error: While making a closure expected a function on the stack but found a {}", func.tname())))
         }
     }
 
@@ -480,7 +574,7 @@ impl VM {
 
     fn get_local(&mut self, idx: u8) -> Result<(), InterpError> {
         #[cfg(debug_assertions)]
-            self.print_stack_frame("get local");
+        self.print_stack_frame("get local");
         let peeked = self.peek_at(idx)?;
         self.push(peeked);
         self.bump_ip();
@@ -524,6 +618,10 @@ impl VM {
 
         let peeked = self.peek_at((self.stack.len() - self.frame.frame_offset - (arity as usize) - 1) as u8)?;
         match peeked {
+            Value::Class(cls) => {
+                debug_println!("Calling class {}", cls.name());
+                self.push(Value::Instance(Instance::new(cls.clone())));
+            }
             Value::Closure(closure) => {
                 debug_println!("{:?}", closure.func);
                 debug_println!("Upvalues: {:?}", closure.func.upvalues);

@@ -2,12 +2,13 @@ extern crate core;
 
 use std::io::Read;
 use std::process::exit;
+use std::rc::Rc;
 use crate::chunk::Chunk;
-use crate::source_ref::SourceRef;
-use crate::vm::{VM};
-use crate::compiler::Compiler;
+use crate::source_ref::{Source, SourceRef};
+use crate::resolver::ResolverResult;
 use crate::symbolizer::{Symbol, Symbolizer};
 use crate::value::Value;
+use crate::vm::VM;
 
 mod value;
 mod func;
@@ -16,7 +17,6 @@ mod source_ref;
 mod chunk;
 mod vm;
 mod scanner;
-mod compiler;
 mod trie;
 mod symbolizer;
 mod e2e_tests;
@@ -24,6 +24,10 @@ mod native_func;
 mod debug;
 mod closure;
 mod class;
+mod bound;
+mod ast;
+mod compiler_ast;
+mod resolver;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -53,23 +57,33 @@ fn main() {
     }
 
     let symbolizer = Symbolizer::new();
+    let source = Rc::new(Source::new(contents));
 
-    let func = match Compiler::compile(contents, symbolizer.clone()) {
-        Ok(c) => c,
-        Err(err) => {
-            eprintln!("{}", err);
-            exit(-1);
-        },
+    let tokens = crate::ast::scanner::scanner(source.clone(), symbolizer.clone()).unwrap();
+    let mut ast = crate::ast::parser::parse(tokens, source).unwrap();
+    println!("Ast: {:?}", &ast);
+
+    match crate::resolver::resolve(&mut ast) {
+        Ok(r) => r,
+        Err(_) => panic!("bad resolution")
     };
 
+    let func = crate::compiler_ast::compile(&mut ast, symbolizer.clone());
+    // let func = match Compiler::compile(contents, symbolizer.clone()) {
+    //     Ok(c) => c,
+    //     Err(err) => {
+    //         eprintln!("{}", err);
+    //         exit(-1);
+    //     },
+    // };
+    //
     if dump_bytecode {
         println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());
         println!("{:?}", func);
-        // return;
     }
-
-
-
+    //
+    //
+    //
     let res = VM::interpret(func, symbolizer.clone());
     match res {
         Err(r) => eprintln!("{}", r),
