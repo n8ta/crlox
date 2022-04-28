@@ -1,13 +1,21 @@
-fun makeCounter() {
-  var i = 0;
-  fun count() {
-    i = i + 1;
-    print i;
+fun double_closure() {
+  {
+     var i = 1;
+     fun closure1() {
+         return i;
+     }
+  }
+  var x = true;
+  {
+      var i = 0;
+      fun closure2() {
+        return i;
+      }
+      x = closure2;
   }
 
-  return count;
+  return x;
 }
 
-var counter = makeCounter();
-counter();
-counter();
+var dc =  double_closure();
+print dc();

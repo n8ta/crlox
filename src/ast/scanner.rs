@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use crate::source_ref::{SourceRef, Source};
-use std::fmt::{Formatter, Debug};
 use std::rc::Rc;
 use crate::scanner::{Num, Token, TType};
-use crate::{Symbol, Symbolizer, Value};
+use crate::{Symbolizer};
 
 type ScannerResult = Result<Vec<Token>, (String, usize)>;
 
@@ -81,10 +80,12 @@ impl Scanner {
         map.insert(String::from("return"), TType::Return);
         map.insert(String::from("super"), TType::Super);
         map.insert(String::from("this"), TType::This);
-        map.insert(String::from("true"), TType::True);
         map.insert(String::from("var"), TType::Var);
         map.insert(String::from("while"), TType::While);
         map.insert(String::from("class"), TType::Class);
+        map.insert(String::from("true"), TType::True);
+        map.insert(String::from("false"), TType::False);
+
         Scanner {
             symbolizer,
             keywords: map,
@@ -127,7 +128,7 @@ impl Scanner {
         self.advance();
         let str = self.src.chars().skip(self.start + 1).take(self.current - self.start - 2).collect::<String>();
         let sym = self.symbolizer.get_symbol(str);
-        self.add_token(TType::Identifier(sym));
+        self.add_token(TType::String(sym));
         return Ok(());
     }
     fn number(&mut self) -> Result<(), String> {

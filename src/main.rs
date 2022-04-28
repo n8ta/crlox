@@ -3,31 +3,26 @@ extern crate core;
 use std::io::Read;
 use std::process::exit;
 use std::rc::Rc;
-use crate::chunk::Chunk;
 use crate::source_ref::{Source, SourceRef};
-use crate::resolver::ResolverResult;
 use crate::symbolizer::{Symbol, Symbolizer};
-use crate::value::Value;
-use crate::vm::VM;
 
 mod value;
-mod func;
-mod ops;
+// mod func;
+// mod ops;
 mod source_ref;
-mod chunk;
-mod vm;
+// mod chunk;
+// mod vm;
 mod scanner;
 mod trie;
 mod symbolizer;
-mod e2e_tests;
+// mod e2e_tests;
 mod native_func;
 mod debug;
-mod closure;
-mod class;
-mod bound;
+// mod closure;
 mod ast;
-mod compiler_ast;
-mod resolver;
+// mod compiler_ast;
+mod uniq_pass;
+mod printable_error;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -37,7 +32,7 @@ fn main() {
         println!("Usage: ./rclox [source_file.lox]");
         exit(-1);
     };
-    let dump_bytecode = if let Some(flag) = args.get(2) {
+    let _dump_bytecode = if let Some(flag) = args.get(2) {
         flag == "--dump"
     } else { false };
 
@@ -50,7 +45,7 @@ fn main() {
         }
     };
     let mut contents: String = String::new();
-    if let Err(err) =  file.read_to_string(&mut contents) {
+    if let Err(err) = file.read_to_string(&mut contents) {
         eprintln!("Unable to read file @ '{}'", path);
         eprintln!("Error: {}", err);
         exit(-1);
@@ -60,15 +55,29 @@ fn main() {
     let source = Rc::new(Source::new(contents));
 
     let tokens = crate::ast::scanner::scanner(source.clone(), symbolizer.clone()).unwrap();
-    let mut ast = crate::ast::parser::parse(tokens, source).unwrap();
-    println!("Ast: {:?}", &ast);
+    let ast = crate::ast::parser::parse(tokens, source).unwrap();
 
-    match crate::resolver::resolve(&mut ast) {
-        Ok(r) => r,
-        Err(_) => panic!("bad resolution")
+    let uniq_ast = match crate::uniq_pass::uniq(ast, symbolizer)
+    {
+        Ok(uniq_ast) => uniq_ast,
+        Err(err) => {
+            eprintln!("{}", err);
+            panic!("Uniq error");
+        }
     };
 
-    let func = crate::compiler_ast::compile(&mut ast, symbolizer.clone());
+
+
+    // println!("uniq: {}", uniq_ast);
+    // let rast = match crate::resolver::resolve(ast, &mut symbolizer) {
+    //     Ok(r) => r,
+    //     Err(e) => {
+    //         eprintln!("resolver error");
+    //         panic!("resolver")
+    //     }
+    // };
+
+    // let func = crate::compiler_ast::compile(&ast, symbolizer.clone());
     // let func = match Compiler::compile(contents, symbolizer.clone()) {
     //     Ok(c) => c,
     //     Err(err) => {
@@ -77,16 +86,16 @@ fn main() {
     //     },
     // };
     //
-    if dump_bytecode {
-        println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());
-        println!("{:?}", func);
-    }
+    // if dump_bytecode {
+    //     println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());
+    //     println!("{:?}", func);
+    // }
     //
     //
     //
-    let res = VM::interpret(func, symbolizer.clone());
-    match res {
-        Err(r) => eprintln!("{}", r),
-        _ => {},
-    }
+    // let res = VM::interpret(func, symbolizer.clone());
+    // match res {
+    //     Err(r) => eprintln!("{}", r),
+    //     _ => {},
+    // }
 }

@@ -1,4 +1,6 @@
-var x = 1;
-var z = 3;
-print z;
+var x = 2;
+{
+    var x = 5;
+    print x;
+}
 print x;

@@ -1,20 +1,23 @@
-use std::cell::RefCell;
-use std::process::id;
 use std::rc::Rc;
 use crate::scanner::{IDENTIFIER_TTYPE_ID, NUMBER_TTYPE_ID, STRING_TTYPE_ID, Token, TType, TTypeId};
 use crate::source_ref::Source;
-use crate::{SourceRef, Symbol, Symbolizer, Value};
+use crate::value::Value;
 use crate::ast::parser_func::ParserFunc;
-use crate::ast::types::{BinOp, Expr, ExprInContext, ExprResult, ExprTy, LogicalOp, ParserError, Stmt, Tokens, UnaryOp, Variable};
-use crate::class::Class;
+use crate::ast::types::{BinOp, Expr, ExprInContext, ExprResult, ExprTy, LogicalOp, ParserError, Stmt, Tokens, UnaryOp};
+use crate::{SourceRef, Symbol};
 
-pub fn parse(tokens: Tokens, source: Rc<Source>) -> Result<Stmt, ParserError> {
+pub fn parse(tokens: Tokens, source: Rc<Source>) -> Result<PStmt, ParserError> {
     let mut parser: Parser = Parser::new(tokens, source);
     let v = parser.parse()?;
     Ok(v)
 }
 
-fn mk_expr(expr: Expr, context: SourceRef) -> ExprTy {
+type PStmt = Stmt<Symbol, Symbol>;
+type PExpr = Expr<Symbol, Symbol>;
+type PExprTy = ExprTy<Symbol, Symbol>;
+type PExprResult = ExprResult<Symbol, Symbol>;
+
+fn mk_expr(expr: PExpr, context: SourceRef) -> ExprTy<Symbol, Symbol> {
     Box::new(ExprInContext::new(expr, context))
 }
 
@@ -31,8 +34,8 @@ impl Parser {
         Parser { tokens, current: 0, source }
     }
 
-    fn parse(&mut self) -> Result<Stmt, ParserError> {
-        let mut stmts: Vec<Stmt> = vec![];
+    fn parse(&mut self) -> Result<PStmt, ParserError> {
+        let mut stmts: Vec<PStmt> = vec![];
         while !self.is_at_end() {
             stmts.push(self.declaration()?)
         }
@@ -115,7 +118,7 @@ impl Parser {
         ParserError::new(msg, self.tokens[self.current].src.clone())
     }
 
-    fn declaration(&mut self) -> Result<Stmt, ParserError> {
+    fn declaration(&mut self) -> Result<Stmt<Symbol,Symbol>, ParserError> {
         if self.matches(vec![TType::Var.id()]) {
             match self.variable_declaration() {
                 Ok(stmt) => Ok(stmt),
@@ -139,28 +142,27 @@ impl Parser {
         }
     }
 
-    fn class(&mut self) -> Result<Stmt, ParserError> {
-        let name_in_context = self.consume(IDENTIFIER_TTYPE_ID, "Class should be followed by name");
-        let name = if let TType::Identifier(sym) = name_in_context.unwrap().kind {
-            sym
-        } else {
-            panic!("Compiler bug");
-        };
-
-        self.consume(TType::LeftBrace.id(), "Expected a '{' before class body")?;
-        let mut methods = vec![];
-        while !self.check(TType::RightBrace.id()) && !self.is_at_end() {
-            methods.push(self.function()?);
-        }
-        self.consume(TType::LeftBrace.id(), "Expected a '}' after class body")?;
-
-        // TODO CLASS HAS METHODS
-        Ok(Stmt::Class(Class::new(name)))
+    fn class(&mut self) -> Result<PStmt, ParserError> {
+        // let name_in_context = self.consume(IDENTIFIER_TTYPE_ID, "Class should be followed by name");
+        // let name = if let TType::Identifier(sym) = name_in_context.unwrap().kind {
+        //     sym
+        // } else {
+        //     panic!("Compiler bug");
+        // };
+        //
+        // self.consume(TType::LeftBrace.id(), "Expected a '{' before class body")?;
+        // let mut methods = vec![];
+        // while !self.check(TType::RightBrace.id()) && !self.is_at_end() {
+        //     methods.push(self.function()?);
+        // }
+        // self.consume(TType::LeftBrace.id(), "Expected a '}' after class body")?;
+        //
+        todo!("class")
+        // Ok(Stmt::Class(Class::new(name)))
     }
 
-    fn function(&mut self) -> Result<ParserFunc, ParserError> {
+    fn function(&mut self) -> Result<ParserFunc<Symbol, Symbol>, ParserError> {
         let name_in_context = self.consume(IDENTIFIER_TTYPE_ID, "Expected a function name")?;
-        let mut context = name_in_context.src.clone();
         let name = if let TType::Identifier(str) = name_in_context.kind { str } else {
             return Err(self.err(format!("Expected a function name")));
         };
@@ -205,11 +207,10 @@ impl Parser {
                            Stmt::Block(Box::new(body)),
                            name_in_context.src.clone(),
                            context,
-                           vec![],
         ))
     }
 
-    fn variable_declaration(&mut self) -> Result<Stmt, ParserError> {
+    fn variable_declaration(&mut self) -> Result<PStmt, ParserError> {
         let name = self.consume(IDENTIFIER_TTYPE_ID, "Expect variable name.").unwrap();
         let init = if self.matches(vec![TType::Eq.id()]) {
             let exp = self.expression()?;
@@ -219,12 +220,12 @@ impl Parser {
         };
         self.consume(TType::Semicolon.id(), "Expected ';' after variable declaration")?;
         if let TType::Identifier(str) = name.kind {
-            return Ok(Stmt::Variable(str.clone(), init, None, name.src));
+            return Ok(Stmt::Variable(str.clone(), init,  name.src));
         }
         Err(self.err(format!("FAILED didnt find a IDENT where expected")))
     }
 
-    fn or(&mut self) -> ExprResult {
+    fn or(&mut self) -> PExprResult {
         let mut expr = self.and()?;
         while self.matches(vec![TType::Or.id()]) {
             let op = LogicalOp::new(self.previous().unwrap());
@@ -235,7 +236,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn and(&mut self) -> ExprResult {
+    fn and(&mut self) -> ExprResult<Symbol, Symbol> {
         let mut expr = self.equality()?;
         while self.matches(vec![TType::And.id()]) {
             let op = LogicalOp::new(self.previous().unwrap());
@@ -246,15 +247,15 @@ impl Parser {
         Ok(expr)
     }
 
-    fn assignment(&mut self) -> ExprResult {
+    fn assignment(&mut self) -> ExprResult<Symbol, Symbol> {
         let expr = self.or()?;
 
         if self.matches(vec![TType::Eq.id()]) {
             let _eq = self.previous().unwrap();
-            let value: ExprTy = self.assignment()?;
+            let value: PExprTy = self.assignment()?;
 
             if let Expr::Variable(var) = expr.expr {
-                return Ok(mk_expr(Expr::Assign(var.name, value.clone(), None),
+                return Ok(mk_expr(Expr::Assign(var, value.clone()),
                                   expr.context.merge(&value.context)));
             } else if let Expr::Get(get_expr, field) = expr.expr {
                 return Ok(mk_expr(Expr::Set(get_expr, field, value),
@@ -267,11 +268,11 @@ impl Parser {
     }
 
 
-    pub fn expression(&mut self) -> ExprResult {
+    pub fn expression(&mut self) -> PExprResult {
         self.assignment()
     }
 
-    fn statement(&mut self) -> Result<Stmt, ParserError> {
+    fn statement(&mut self) -> Result<PStmt, ParserError> {
         if self.matches(vec![TType::Print.id()]) {
             self.print_statement()
         } else if self.matches(vec![TType::While.id()]) {
@@ -289,8 +290,7 @@ impl Parser {
         }
     }
 
-    fn return_statement(&mut self) -> Result<Stmt, ParserError> {
-        let keyword = self.previous().unwrap();
+    fn return_statement(&mut self) -> Result<PStmt, ParserError> {
         let mut value = None;
         if !self.check(TType::Semicolon.id()) {
             value = Some(self.expression()?);
@@ -299,7 +299,7 @@ impl Parser {
         Ok(Stmt::Return(value))
     }
 
-    fn while_statement(&mut self) -> Result<Stmt, ParserError> {
+    fn while_statement(&mut self) -> Result<PStmt, ParserError> {
         self.consume(TType::LeftParen.id(), "Expected '(' after 'while'")?;
         let expr = self.expression()?;
         self.consume(TType::RightParen.id(), "Expected ')' after while condition")?;
@@ -307,33 +307,33 @@ impl Parser {
         Ok(Stmt::While(expr, Box::new(body)))
     }
 
-    fn if_statement(&mut self) -> Result<Stmt, ParserError> {
+    fn if_statement(&mut self) -> Result<PStmt, ParserError> {
         self.consume(TType::LeftParen.id(), "Expected '(' after 'if'")?;
         let test = self.expression()?;
         self.consume(TType::RightParen.id(), "Expected ')' after `if (... ")?;
         let if_branch = self.statement()?;
-        let mut else_branch: Option<Box<Stmt>> = None;
+        let mut else_branch: Option<Box<PStmt>> = None;
         if self.matches(vec![TType::Else.id()]) {
             else_branch = Some(Box::new(self.statement()?));
         }
         Ok(Stmt::If(test, Box::new(if_branch), else_branch))
     }
 
-    fn for_statement(&mut self) -> Result<Stmt, ParserError> {
+    fn for_statement(&mut self) -> Result<PStmt, ParserError> {
         self.consume(TType::LeftParen.id(), "Expected a '(' after a for loop")?;
-        let init: Option<Stmt> = if self.matches(vec![TType::Semicolon.id()]) {
+        let init: Option<PStmt> = if self.matches(vec![TType::Semicolon.id()]) {
             None
         } else if self.matches(vec![TType::Var.id()]) {
             Some(self.variable_declaration()?)
         } else {
             Some(self.expression_statement()?)
         };
-        let mut condition: Option<ExprTy> = None;
+        let mut condition: Option<PExprTy> = None;
         if !self.check(TType::Semicolon.id()) {
             condition = Some(self.expression()?);
         }
         self.consume(TType::Semicolon.id(), "Expect ';' after for loop condition.")?;
-        let mut increment: Option<ExprTy> = None;
+        let mut increment: Option<PExprTy> = None;
         if !self.check(TType::RightParen.id()) {
             increment = Some(self.expression()?);
         }
@@ -353,8 +353,8 @@ impl Parser {
         Ok(body)
     }
 
-    fn block(&mut self) -> Result<(Stmt, SourceRef), ParserError> {
-        let mut stmts: Vec<Stmt> = vec![];
+    fn block(&mut self) -> Result<(PStmt, SourceRef), ParserError> {
+        let mut stmts: Vec<PStmt> = vec![];
         while !self.check(TType::RightBrace.id()) && !self.is_at_end() {
             stmts.push(self.declaration()?)
         }
@@ -362,19 +362,19 @@ impl Parser {
         Ok((Stmt::Block(Box::new(stmts)), rbrace.src))
     }
 
-    fn print_statement(&mut self) -> Result<Stmt, ParserError> {
-        let value: ExprTy = self.expression()?;
+    fn print_statement(&mut self) -> Result<PStmt, ParserError> {
+        let value: PExprTy = self.expression()?;
         self.consume(TType::Semicolon.id(), "Expected ';' after print value.")?;
         Ok(Stmt::Print(value))
     }
 
-    fn expression_statement(&mut self) -> Result<Stmt, ParserError> {
-        let value: ExprTy = self.expression()?;
+    fn expression_statement(&mut self) -> Result<PStmt, ParserError> {
+        let value: PExprTy = self.expression()?;
         self.consume(TType::Semicolon.id(), "Expected ';' after expression.")?;
         Ok(Stmt::Expr(value))
     }
 
-    fn equality(&mut self) -> ExprResult {
+    fn equality(&mut self) -> PExprResult {
         let mut expr = self.comparison()?;
         while self.matches(vec![TType::BangEq.id(), TType::EqEq.id()]) {
             let operator = BinOp::new(self.previous().unwrap());
@@ -385,7 +385,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn comparison(&mut self) -> ExprResult {
+    fn comparison(&mut self) -> PExprResult {
         let mut expr = self.term()?;
         while self.matches(vec![TType::Greater.id(), TType::GreaterEq.id(), TType::Less.id(), TType::LessEq.id()]) {
             let operator = BinOp::new(self.previous().unwrap());
@@ -397,8 +397,8 @@ impl Parser {
         Ok(expr)
     }
 
-    fn term(&mut self) -> ExprResult {
-        let mut expr: ExprTy = self.factor()?;
+    fn term(&mut self) -> PExprResult {
+        let mut expr: PExprTy = self.factor()?;
         while self.matches(vec![TType::Minus.id(), TType::Plus.id()]) {
             let operator = BinOp::new(self.previous().unwrap());
             let right = self.factor()?;
@@ -408,7 +408,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn factor(&mut self) -> ExprResult {
+    fn factor(&mut self) -> PExprResult {
         let mut expr = self.unary()?;
         while self.matches(vec![TType::Slash.id(), TType::Star.id()]) {
             let operator = BinOp::new(self.previous().unwrap());
@@ -419,7 +419,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn unary(&mut self) -> ExprResult {
+    fn unary(&mut self) -> PExprResult {
         if self.matches(vec![TType::Bang.id(), TType::Minus.id()]) {
             let operator = UnaryOp::new(self.previous().unwrap());
             let right = self.unary()?;
@@ -430,7 +430,7 @@ impl Parser {
         Ok(self.call()?)
     }
 
-    fn call(&mut self) -> ExprResult {
+    fn call(&mut self) -> PExprResult {
         let mut expr = self.primary()?;
         loop {
             if self.matches(vec![TType::LeftParen.id()]) {
@@ -451,8 +451,8 @@ impl Parser {
         Ok(expr)
     }
 
-    fn finish_call(&mut self, callee: ExprTy) -> ExprResult {
-        let mut args: Vec<ExprTy> = vec![];
+    fn finish_call(&mut self, callee: PExprTy) -> PExprResult {
+        let mut args: Vec<PExprTy> = vec![];
         let mut context = callee.context.clone();
         let mut first = true;
         if !self.check(TType::RightParen.id()) {
@@ -470,7 +470,7 @@ impl Parser {
         Ok(Box::new(ExprInContext::new(Expr::Call(callee, args), context)))
     }
 
-    fn primary(&mut self) -> ExprResult {
+    fn primary(&mut self) -> PExprResult {
         if self.matches(vec![TType::False.id(), TType::True.id()]) {
             let last = self.previous().unwrap().kind == TType::True;
             return Ok(mk_expr(Expr::Literal(Value::Bool(last)), self.previous().unwrap().src));
@@ -528,7 +528,7 @@ impl Parser {
 
         if self.matches(vec![IDENTIFIER_TTYPE_ID]) {
             if let TType::Identifier(id) = self.previous().unwrap().kind {
-                return Ok(mk_expr(Expr::Variable(Variable::new(id)), self.previous().unwrap().src));
+                return Ok(mk_expr(Expr::Variable(id),  self.previous().unwrap().src));
             }
             panic!("Here be dragons");
         }
