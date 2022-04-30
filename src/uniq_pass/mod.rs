@@ -31,10 +31,26 @@ pub enum UpvalueType {
     Captured(u8),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct FuncScope {
     upvalues: Vec<Upvalue>,
     scopes: Vec<Vec<VarDecl>>,
+}
+
+impl Debug for FuncScope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("Func - {:?}\n", self.upvalues))?;
+        f.write_str(&format!("    scopes: {:?}\n", self.scopes))
+    }
+}
+
+impl Debug for PartialResolver {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for i in &self.stack {
+            f.write_str(&format!("{:?}", i))?;
+        }
+        Ok(())
+    }
 }
 
 impl FuncScope {
@@ -170,7 +186,7 @@ impl PartialResolver {
     fn resolve(&mut self, symbol: Symbol, src: &SourceRef) -> Result<VarRef, PrintableError> {
         // let mut outermost_func = true;
         println!("Resolving {}", symbol);
-        println!("{:?}", self.stack);
+        println!("{:?}", self);
 
 
         let mut result = None;
@@ -180,7 +196,7 @@ impl PartialResolver {
             for (scope_idx, scope) in func.scopes.iter_mut().enumerate().rev() {
                 for var in scope.iter_mut().rev() {
                     if var == &symbol {
-                        println!("Found in func {}/{} scope {}/{}", func_idx+1, len, scope_idx+1, len_scopes);
+                        println!("Found in func {}/{} scope {}/{}", func_idx + 1, len, scope_idx + 1, len_scopes);
                         // If this variable wasn't defined in the current function we
                         // are closing over it. Mark is it an upvalue root.
                         // if !outermost_func {
@@ -191,14 +207,15 @@ impl PartialResolver {
                         break;
                     }
                 }
-                if result.is_some() { break }
+                if result.is_some() { break; }
             }
-            // outermost_func = false;
+            if result.is_some() { break; }
         }
         if let Some((func_idx, decl)) = result {
             if func_idx == self.stack.len() - 1 {
                 Ok(VarRef::new(&decl))
             } else {
+                println!("Making upvalue {:?}", &decl);
                 decl.make_upvalue();
                 let vr = VarRef::new(&decl);
                 let mut capture_idx = self.stack[func_idx].add_root(decl.sym());
@@ -271,6 +288,7 @@ fn test_plain_text() {
     }
 
     fn pass(input: &str, exp: &str) {
+        println!("{}", input);
         let symbolizer = Symbolizer::new();
         let source = Rc::new(Source::new(input.to_string()));
         let tokens = crate::ast::scanner::scanner(source.clone(), symbolizer.clone()).unwrap();
@@ -283,21 +301,21 @@ fn test_plain_text() {
         remove_spaces_eq(exp, &uniq_cln);
     }
 
-    // pass("var x = 0; print x;", "var l0 = 0; print rl0;");
-    // pass("var x = 0; {{{ print x; }}}", "var l0 = 0; {{{print rl0;}}}");
-    // pass("var x = 0; { var x = 1; {{ print x; }}}", "var l0 = 0; { var l1 = 1;  {{ print rl1; }} }");
-    // pass("var x = 0; { var x = 1; } print x;", "var l0 = 0; { var l1 = 1; } print rl0;");
-    // pass("var x = 0; { var x = 1; var z = 3; } print x;", "var l0 = 0; { var l1 = 1; var l2 = 3; } print rl0;");
-    // pass("var x = 0; { var x = 1; var z = 3; print x; print z; print x; } print x;",
-    //      "var l0 = 0; { var l1 = 1; var l2 = 3; print rl1; print rl2; print rl1; } print rl0;");
-    // pass("var x = 0; var y = x + x;", "var l0 = 0; var l1 = rl0 + rl0;");
-    // pass("var x = 0; var y = x + x; print y;",
-    //      "var l0 = 0; var l1 = rl0 + rl0; print rl1;");
-    // pass("{ var x = 123; var y = x; var z = y + x; }",
-    //      "{ var l0 = 123;\n var l1 = rl0;\n var l2 = rl1 + rl0; }");
-    // pass("{ var x = 123; var y = x; var z = ((y)) + (x+2); }",
-    //      "{ var l0 = 123; var l1 = rl0; var l2 = ((rl1)) + (rl0+2); }");
-    // pass("fun test() { print 1; }", "fun l0() { print 1; }");
+    pass("var x = 0; print x;", "var l0 = 0; print rl0;");
+    pass("var x = 0; {{{ print x; }}}", "var l0 = 0; {{{print rl0;}}}");
+    pass("var x = 0; { var x = 1; {{ print x; }}}", "var l0 = 0; { var l1 = 1;  {{ print rl1; }} }");
+    pass("var x = 0; { var x = 1; } print x;", "var l0 = 0; { var l1 = 1; } print rl0;");
+    pass("var x = 0; { var x = 1; var z = 3; } print x;", "var l0 = 0; { var l1 = 1; var l2 = 3; } print rl0;");
+    pass("var x = 0; { var x = 1; var z = 3; print x; print z; print x; } print x;",
+         "var l0 = 0; { var l1 = 1; var l2 = 3; print rl1; print rl2; print rl1; } print rl0;");
+    pass("var x = 0; var y = x + x;", "var l0 = 0; var l1 = rl0 + rl0;");
+    pass("var x = 0; var y = x + x; print y;",
+         "var l0 = 0; var l1 = rl0 + rl0; print rl1;");
+    pass("{ var x = 123; var y = x; var z = y + x; }",
+         "{ var l0 = 123;\n var l1 = rl0;\n var l2 = rl1 + rl0; }");
+    pass("{ var x = 123; var y = x; var z = ((y)) + (x+2); }",
+         "{ var l0 = 123; var l1 = rl0; var l2 = ((rl1)) + (rl0+2); }");
+    pass("fun test() { print 1; }", "fun l0() { print 1; }");
     pass("fun test() { print test; }", "fun l0() { print rl0; }");
     pass("fun test() { var test = 0; print test; }",
          "fun l0() { var l1 = 0; print rl1; }");

@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::fmt::{Display, Formatter, UpperExp};
+use std::fmt::{Debug, Display, Formatter, UpperExp};
 use std::rc::Rc;
 use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
 use crate::{Source, SourceRef, Symbol, Symbolizer};
@@ -22,7 +22,7 @@ struct VarDeclInner  {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct VarDecl {
     inner: Rc<RefCell<VarDeclInner>>
 }
@@ -58,5 +58,16 @@ impl Display for VarDecl {
             VarDeclType::ProgramRoot => "r",
         };
         f.write_str(&format!("{}{}", typ, self.inner.borrow().symbol.id))
+    }
+}
+
+impl Debug for VarDecl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let typ = match self.inner.borrow().typ {
+            VarDeclType::Upval => "u",
+            VarDeclType::Local => "l",
+            VarDeclType::ProgramRoot => "r",
+        };
+        f.write_str(&format!("{}{}:{}", typ, self.inner.borrow().symbol.id, self.inner.borrow().symbol.symbol))
     }
 }
