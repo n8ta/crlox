@@ -19,7 +19,7 @@ impl Display for VarRef {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarRef {
-    decl: VarDecl
+    pub decl: VarDecl
 }
 
 impl VarRef {

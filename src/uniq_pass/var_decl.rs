@@ -35,6 +35,9 @@ impl VarDecl {
     pub fn make_upvalue(&self)  {
         self.inner.borrow_mut().typ = VarDeclType::Upval;
     }
+    pub fn sym(&self) -> UniqSymbol {
+        self.inner.borrow().symbol.clone()
+    }
 }
 
 impl PartialEq<Symbol> for VarDecl {

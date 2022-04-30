@@ -4,7 +4,7 @@ pub(crate) mod var_decl;
 mod resolved_func;
 
 use std::cell::RefCell;
-use std::fmt::{Display, Formatter, UpperExp};
+use std::fmt::{Debug, Display, Formatter, UpperExp};
 use std::rc::Rc;
 use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
 use crate::{Source, SourceRef, Symbol, Symbolizer};
@@ -16,14 +16,49 @@ use crate::uniq_pass::var_decl::VarDecl;
 use crate::uniq_pass::var_ref::VarRef;
 
 #[derive(Clone, Debug)]
+pub struct Upvalue {
+    sym: UniqSymbol,
+    typ: UpvalueType,
+}
+
+impl Upvalue {
+    pub fn new(sym: UniqSymbol, typ: UpvalueType) -> Self { Upvalue { sym, typ } }
+}
+
+#[derive(Clone, Debug)]
+pub enum UpvalueType {
+    Root,
+    Captured(u8),
+}
+
+#[derive(Clone, Debug)]
 pub struct FuncScope {
-    upvalues: Vec<UniqSymbol>,
+    upvalues: Vec<Upvalue>,
     scopes: Vec<Vec<VarDecl>>,
 }
 
 impl FuncScope {
     pub fn new() -> Self {
-        FuncScope { upvalues: vec![], scopes: vec![vec![]], }
+        FuncScope {
+            upvalues: vec![],
+            scopes: vec![vec![]],
+        }
+    }
+    pub fn add_root(&mut self, var: UniqSymbol) -> u8 {
+        if let Some((idx, _)) = self.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == var) {
+            idx as u8
+        } else {
+            self.upvalues.push(Upvalue::new(var, UpvalueType::Root));
+            (self.upvalues.len() - 1) as u8
+        }
+    }
+    pub fn capture_upvalue(&mut self, parent_idx: u8, sym: UniqSymbol) -> u8 {
+        if let Some((idx, _)) = self.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == sym) {
+            idx as u8
+        } else {
+            self.upvalues.push(Upvalue::new(sym, UpvalueType::Captured(parent_idx)));
+            (self.upvalues.len() - 1) as u8
+        }
     }
 }
 
@@ -133,26 +168,48 @@ impl PartialResolver {
         Ok(Box::new(ExprInContext::new(ex, expr.context)))
     }
     fn resolve(&mut self, symbol: Symbol, src: &SourceRef) -> Result<VarRef, PrintableError> {
-        let mut outermost_func = true;
+        // let mut outermost_func = true;
         println!("Resolving {}", symbol);
         println!("{:?}", self.stack);
 
+
+        let mut result = None;
+        let len = self.stack.len();
         for (func_idx, func) in self.stack.iter_mut().enumerate().rev() {
+            let len_scopes = func.scopes.len();
             for (scope_idx, scope) in func.scopes.iter_mut().enumerate().rev() {
                 for var in scope.iter_mut().rev() {
                     if var == &symbol {
+                        println!("Found in func {}/{} scope {}/{}", func_idx+1, len, scope_idx+1, len_scopes);
                         // If this variable wasn't defined in the current function we
                         // are closing over it. Mark is it an upvalue root.
-                        if !outermost_func {
-                            var.make_upvalue();
-                        }
-                        return Ok(VarRef::new(var));
+                        // if !outermost_func {
+                        //     var.make_upvalue();
+                        //     func.root_upvalues.push(var.clone());
+                        // }
+                        result = Some((func_idx, var.clone()));
+                        break;
                     }
                 }
+                if result.is_some() { break }
             }
-            outermost_func = false;
+            // outermost_func = false;
         }
-        Err(PrintableError::new(format!("Unable to resolve symbol: {}", symbol), src.clone()))
+        if let Some((func_idx, decl)) = result {
+            if func_idx == self.stack.len() - 1 {
+                Ok(VarRef::new(&decl))
+            } else {
+                decl.make_upvalue();
+                let vr = VarRef::new(&decl);
+                let mut capture_idx = self.stack[func_idx].add_root(decl.sym());
+                for func in &mut self.stack[func_idx + 1..] {
+                    func.capture_upvalue(capture_idx, decl.sym());
+                }
+                Ok(vr)
+            }
+        } else {
+            Err(PrintableError::new(format!("Unable to resolve symbol: {}", symbol), src.clone()))
+        }
     }
     fn begin_func(&mut self) {
         self.stack.push(FuncScope::new());
@@ -226,21 +283,21 @@ fn test_plain_text() {
         remove_spaces_eq(exp, &uniq_cln);
     }
 
-    pass("var x = 0; print x;", "var l0 = 0; print rl0;");
-    pass("var x = 0; {{{ print x; }}}", "var l0 = 0; {{{print rl0;}}}");
-    pass("var x = 0; { var x = 1; {{ print x; }}}", "var l0 = 0; { var l1 = 1;  {{ print rl1; }} }");
-    pass("var x = 0; { var x = 1; } print x;", "var l0 = 0; { var l1 = 1; } print rl0;");
-    pass("var x = 0; { var x = 1; var z = 3; } print x;", "var l0 = 0; { var l1 = 1; var l2 = 3; } print rl0;");
-    pass("var x = 0; { var x = 1; var z = 3; print x; print z; print x; } print x;",
-         "var l0 = 0; { var l1 = 1; var l2 = 3; print rl1; print rl2; print rl1; } print rl0;");
-    pass("var x = 0; var y = x + x;", "var l0 = 0; var l1 = rl0 + rl0;");
-    pass("var x = 0; var y = x + x; print y;",
-         "var l0 = 0; var l1 = rl0 + rl0; print rl1;");
-    pass("{ var x = 123; var y = x; var z = y + x; }",
-         "{ var l0 = 123;\n var l1 = rl0;\n var l2 = rl1 + rl0; }");
-    pass("{ var x = 123; var y = x; var z = ((y)) + (x+2); }",
-         "{ var l0 = 123; var l1 = rl0; var l2 = ((rl1)) + (rl0+2); }");
-    pass("fun test() { print 1; }", "fun l0() { print 1; }");
+    // pass("var x = 0; print x;", "var l0 = 0; print rl0;");
+    // pass("var x = 0; {{{ print x; }}}", "var l0 = 0; {{{print rl0;}}}");
+    // pass("var x = 0; { var x = 1; {{ print x; }}}", "var l0 = 0; { var l1 = 1;  {{ print rl1; }} }");
+    // pass("var x = 0; { var x = 1; } print x;", "var l0 = 0; { var l1 = 1; } print rl0;");
+    // pass("var x = 0; { var x = 1; var z = 3; } print x;", "var l0 = 0; { var l1 = 1; var l2 = 3; } print rl0;");
+    // pass("var x = 0; { var x = 1; var z = 3; print x; print z; print x; } print x;",
+    //      "var l0 = 0; { var l1 = 1; var l2 = 3; print rl1; print rl2; print rl1; } print rl0;");
+    // pass("var x = 0; var y = x + x;", "var l0 = 0; var l1 = rl0 + rl0;");
+    // pass("var x = 0; var y = x + x; print y;",
+    //      "var l0 = 0; var l1 = rl0 + rl0; print rl1;");
+    // pass("{ var x = 123; var y = x; var z = y + x; }",
+    //      "{ var l0 = 123;\n var l1 = rl0;\n var l2 = rl1 + rl0; }");
+    // pass("{ var x = 123; var y = x; var z = ((y)) + (x+2); }",
+    //      "{ var l0 = 123; var l1 = rl0; var l2 = ((rl1)) + (rl0+2); }");
+    // pass("fun test() { print 1; }", "fun l0() { print 1; }");
     pass("fun test() { print test; }", "fun l0() { print rl0; }");
     pass("fun test() { var test = 0; print test; }",
          "fun l0() { var l1 = 0; print rl1; }");
