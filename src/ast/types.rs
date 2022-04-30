@@ -15,48 +15,61 @@ impl ParserError {
 
 pub type Tokens = Vec<Token>;
 
-pub type ExprTy<DeclT, RefT> = Box<ExprInContext<DeclT, RefT>>;
+pub type ExprTy<DeclT, RefT, FuncT> = Box<ExprInContext<DeclT, RefT, FuncT>>;
 
 #[allow(unused)]
 #[derive(Clone, Debug)]
-pub struct ExprInContext<DeclT: PartialEq + Clone + Display, RefT: PartialEq + Clone + Display> {
+pub struct ExprInContext<
+    DeclT: PartialEq + Clone + Display,
+    RefT: PartialEq + Clone + Display,
+    FuncT: PartialEq + Clone + Display> {
     pub context: SourceRef,
-    pub expr: Expr<DeclT, RefT>,
-    _marker: std::marker::PhantomData<(DeclT, RefT)>,
+    pub expr: Expr<DeclT, RefT, FuncT>,
+    _marker: std::marker::PhantomData<(DeclT, RefT, FuncT)>,
 }
 
-impl<T: PartialEq + Clone + Display, S: Clone + PartialEq + Display> Display for ExprInContext<T, S> {
+impl<T: PartialEq + Clone + Display, S: Clone + PartialEq + Display, F: PartialEq + Clone + Display> Display for ExprInContext<T, S, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!("{}", self.expr))
     }
 }
 
-impl<T: PartialEq + Clone + Display, S: Clone + PartialEq + Display> PartialEq for ExprInContext<T, S> {
+impl<T: PartialEq + Clone + Display, S: Clone + PartialEq + Display, F: Clone + PartialEq + Display> PartialEq for ExprInContext<T, S, F> {
     fn eq(&self, other: &Self) -> bool {
         self.expr == other.expr
     }
 }
 
-impl<T: Clone + PartialEq + Display, S: Clone + PartialEq + Display> ExprInContext<T, S> {
-    pub fn new(expr: Expr<T, S>, context: SourceRef) -> ExprInContext<T, S> {
+impl<T: Clone + PartialEq + Display,
+    S: Clone + PartialEq + Display,
+    F: PartialEq + Clone + Display
+> ExprInContext<T, S, F> {
+    pub fn new(expr: Expr<T, S, F>, context: SourceRef) -> ExprInContext<T, S, F> {
         ExprInContext { expr, context, _marker: std::marker::PhantomData }
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum Stmt<VarDeclT: Clone + PartialEq + Display, VarRefT: Clone + PartialEq + Display> {
-    Expr(ExprTy<VarDeclT, VarRefT>),
-    Block(Box<Vec<Stmt<VarDeclT, VarRefT>>>),
-    Print(ExprTy<VarDeclT, VarRefT>),
-    Variable(VarDeclT, ExprTy<VarDeclT, VarRefT>, SourceRef),
-    If(ExprTy<VarDeclT, VarRefT>, Box<Stmt<VarDeclT, VarRefT>>, Option<Box<Stmt<VarDeclT, VarRefT>>>),
-    While(ExprTy<VarDeclT, VarRefT>, Box<Stmt<VarDeclT, VarRefT>>),
-    Function(ParserFunc<VarDeclT, VarRefT>),
-    Return(Option<ExprTy<VarDeclT, VarRefT>>),
+pub enum Stmt<
+    VarDeclT: Clone + PartialEq + Display,
+    VarRefT: Clone + PartialEq + Display,
+    FuncT: PartialEq + Clone + Display> {
+    Expr(ExprTy<VarDeclT, VarRefT, FuncT>),
+    Block(Box<Vec<Stmt<VarDeclT, VarRefT, FuncT>>>),
+    Print(ExprTy<VarDeclT, VarRefT, FuncT>),
+    Variable(VarDeclT, ExprTy<VarDeclT, VarRefT, FuncT>, SourceRef),
+    If(ExprTy<VarDeclT, VarRefT, FuncT>, Box<Stmt<VarDeclT, VarRefT, FuncT>>, Option<Box<Stmt<VarDeclT, VarRefT, FuncT>>>),
+    While(ExprTy<VarDeclT, VarRefT, FuncT>, Box<Stmt<VarDeclT, VarRefT, FuncT>>),
+    Function(FuncT),
+    Return(Option<ExprTy<VarDeclT, VarRefT, FuncT>>),
     // Class(Class),
 }
 
-impl<DeclT: Display + Clone + PartialEq, RefT: Display + Clone + PartialEq> Display for Stmt<DeclT, RefT> {
+impl<
+    DeclT: Display + Clone + PartialEq,
+    RefT: Display + Clone + PartialEq,
+    FuncT: PartialEq + Clone + Display
+> Display for Stmt<DeclT, RefT, FuncT> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             Stmt::Expr(expr) => format!("{};", expr.expr),
@@ -96,23 +109,31 @@ impl Display for LogicalOp {
     }
 }
 
+
 #[derive(Clone, Debug, PartialEq)]
-pub enum Expr<DeclT: PartialEq + Clone + Display, RefT: PartialEq + Clone + Display> {
-    Binary(ExprTy<DeclT, RefT>, BinOp, ExprTy<DeclT, RefT>),
-    Call(ExprTy<DeclT, RefT>, Vec<ExprTy<DeclT, RefT>>),
-    Grouping(ExprTy<DeclT, RefT>),
-    Get(ExprTy<DeclT, RefT>, Symbol),
+pub enum Expr<
+    DeclT: PartialEq + Clone + Display,
+    RefT: PartialEq + Clone + Display,
+    FuncT: PartialEq + Clone + Display> {
+    Binary(ExprTy<DeclT, RefT, FuncT>, BinOp, ExprTy<DeclT, RefT, FuncT>),
+    Call(ExprTy<DeclT, RefT, FuncT>, Vec<ExprTy<DeclT, RefT, FuncT>>),
+    Grouping(ExprTy<DeclT, RefT, FuncT>),
+    Get(ExprTy<DeclT, RefT, FuncT>, Symbol),
     Literal(crate::value::Value),
-    Unary(UnaryOp, ExprTy<DeclT, RefT>),
-    Set(ExprTy<DeclT, RefT>, Symbol, ExprTy<DeclT, RefT>),
+    Unary(UnaryOp, ExprTy<DeclT, RefT, FuncT>),
+    Set(ExprTy<DeclT, RefT, FuncT>, Symbol, ExprTy<DeclT, RefT, FuncT>),
     Variable(RefT),
     Super(Symbol),
-    Assign(RefT, ExprTy<DeclT, RefT>),
-    Logical(ExprTy<DeclT, RefT>, LogicalOp, ExprTy<DeclT, RefT>),
+    Assign(RefT, ExprTy<DeclT, RefT, FuncT>),
+    Logical(ExprTy<DeclT, RefT, FuncT>, LogicalOp, ExprTy<DeclT, RefT, FuncT>),
     This(),
 }
 
-impl<DeclT: Display + PartialEq + Clone, RefT: Display + PartialEq + Clone> Display for Expr<DeclT, RefT> {
+impl<
+    DeclT: Display + PartialEq + Clone,
+    RefT: Display + PartialEq + Clone,
+    FuncT: PartialEq + Clone + Display
+> Display for Expr<DeclT, RefT, FuncT> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Binary(left, op, right) => write!(f, "{} {} {}", left, op, right),
@@ -231,4 +252,4 @@ impl Display for UnaryOp {
     }
 }
 
-pub type ExprResult<Declt, RefT> = Result<ExprTy<Declt, RefT>, ParserError>;
+pub type ExprResult<Declt, RefT, PF> = Result<ExprTy<Declt, RefT, PF>, ParserError>;

@@ -32,9 +32,7 @@ impl Compiler {
                 Op::Print.emit(self);
             }
             Stmt::Variable(name, init, src) => {
-                // TODO: Closures
                 self.expr(init)?;
-                todo!("new method");
             }
             Stmt::If(test, body, else_body) => {
                 /*

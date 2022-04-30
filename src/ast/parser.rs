@@ -12,12 +12,13 @@ pub fn parse(tokens: Tokens, source: Rc<Source>) -> Result<PStmt, ParserError> {
     Ok(v)
 }
 
-type PStmt = Stmt<Symbol, Symbol>;
-type PExpr = Expr<Symbol, Symbol>;
-type PExprTy = ExprTy<Symbol, Symbol>;
-type PExprResult = ExprResult<Symbol, Symbol>;
+type PFunc = ParserFunc<Symbol, Symbol>;
+type PStmt = Stmt<Symbol, Symbol, PFunc>;
+type PExpr = Expr<Symbol, Symbol, PFunc>;
+type PExprTy = ExprTy<Symbol, Symbol, PFunc>;
+type PExprResult = ExprResult<Symbol, Symbol, PFunc>;
 
-fn mk_expr(expr: PExpr, context: SourceRef) -> ExprTy<Symbol, Symbol> {
+fn mk_expr(expr: PExpr, context: SourceRef) -> PExprTy {
     Box::new(ExprInContext::new(expr, context))
 }
 
@@ -118,7 +119,7 @@ impl Parser {
         ParserError::new(msg, self.tokens[self.current].src.clone())
     }
 
-    fn declaration(&mut self) -> Result<Stmt<Symbol,Symbol>, ParserError> {
+    fn declaration(&mut self) -> Result<PStmt, ParserError> {
         if self.matches(vec![TType::Var.id()]) {
             match self.variable_declaration() {
                 Ok(stmt) => Ok(stmt),
@@ -236,7 +237,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn and(&mut self) -> ExprResult<Symbol, Symbol> {
+    fn and(&mut self) -> PExprResult {
         let mut expr = self.equality()?;
         while self.matches(vec![TType::And.id()]) {
             let op = LogicalOp::new(self.previous().unwrap());
@@ -247,7 +248,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn assignment(&mut self) -> ExprResult<Symbol, Symbol> {
+    fn assignment(&mut self) -> PExprResult {
         let expr = self.or()?;
 
         if self.matches(vec![TType::Eq.id()]) {

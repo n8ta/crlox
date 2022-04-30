@@ -1,25 +1,38 @@
 pub mod uniq_symbol;
-mod var_ref;
-mod var_decl;
+pub(crate) mod var_ref;
+pub(crate) mod var_decl;
+mod resolved_func;
 
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter, UpperExp};
 use std::rc::Rc;
 use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
 use crate::{Source, SourceRef, Symbol, Symbolizer};
-use crate::ast::parser_func::ParserFunc;
+use crate::ast::parser::Parser;
+use crate::ast::parser_func::{ParserFunc, ParserFuncInner};
 use crate::printable_error::PrintableError;
 use crate::uniq_pass::uniq_symbol::{UniqSymbol, UniqSymbolizer};
 use crate::uniq_pass::var_decl::VarDecl;
 use crate::uniq_pass::var_ref::VarRef;
 
+#[derive(Clone, Debug)]
+pub struct FuncScope {
+    upvalues: Vec<UniqSymbol>,
+    scopes: Vec<Vec<VarDecl>>,
+}
+
+impl FuncScope {
+    pub fn new() -> Self {
+        FuncScope { upvalues: vec![], scopes: vec![vec![]], }
+    }
+}
 
 struct PartialResolver {
     uniq: UniqSymbolizer,
     // Stack of Functions
     //  Stack of Scopes
     //   List of Variables
-    scopes: Vec<Vec<Vec<VarDecl>>>,
+    stack: Vec<FuncScope>,
 }
 
 // Run proc on every input and return the vec of the results or the first
@@ -32,10 +45,17 @@ pub fn map_result<InputT, OutputT, ErrT, F: FnMut(InputT) -> Result<OutputT, Err
     Ok(passing)
 }
 
+type ParserFuncIn = ParserFunc<Symbol, Symbol>;
+type ParserFuncOut = ParserFunc<VarDecl, VarRef>;
+type StmtIn = Stmt<Symbol, Symbol, ParserFuncIn>;
+type StmtOut = Stmt<VarDecl, VarRef, ParserFuncOut>;
+type ExprTyIn = ExprTy<Symbol, Symbol, ParserFuncIn>;
+type ExprTyOut = ExprTy<VarDecl, VarRef, ParserFuncOut>;
+
 impl PartialResolver {
-    pub fn new(symbolizer: Symbolizer) -> PartialResolver { PartialResolver { uniq: UniqSymbolizer::new(symbolizer), scopes: vec![vec![vec![]]] } }
-    pub fn stmt(&mut self, stmt: Stmt<Symbol, Symbol>) -> Result<Stmt<VarDecl, VarRef>, PrintableError> {
-        let s: Stmt<VarDecl, VarRef> = match stmt {
+    pub fn new(symbolizer: Symbolizer) -> PartialResolver { PartialResolver { uniq: UniqSymbolizer::new(symbolizer), stack: vec![FuncScope::new()] } }
+    pub fn stmt(&mut self, stmt: StmtIn) -> Result<StmtOut, PrintableError> {
+        let s: StmtOut = match stmt {
             Stmt::Expr(ex) => Stmt::Expr(self.expr(ex)?),
             Stmt::Block(stmts) => {
                 self.begin_scope();
@@ -50,7 +70,7 @@ impl PartialResolver {
                 self.begin_scope();
                 let aa = self.stmt(*a)?;
                 self.end_scope();
-                let bb: Option<Box<Stmt<VarDecl, VarRef>>> = if let Some(b) = b {
+                let bb: Option<Box<StmtOut>> = if let Some(b) = b {
                     self.begin_scope();
                     let bb = self.stmt(*b)?;
                     self.end_scope();
@@ -74,7 +94,7 @@ impl PartialResolver {
 
                 // a recursive function is really defined in two scopes so define it again inside itself here
                 // with the same uniq value...
-                self.scopes.last_mut().unwrap().last_mut().unwrap().push(name.clone());
+                self.stack.last_mut().unwrap().scopes.last_mut().unwrap().push(name.clone());
 
                 self.begin_scope();
                 let body = self.stmt(*f.body.clone())?; // todo: this could be pretty slow
@@ -91,7 +111,7 @@ impl PartialResolver {
         };
         Ok(s)
     }
-    fn expr(&mut self, expr: ExprTy<Symbol, Symbol>) -> Result<ExprTy<VarDecl, VarRef>, PrintableError> {
+    fn expr(&mut self, expr: ExprTyIn) -> Result<ExprTyOut, PrintableError> {
         let ex = match expr.expr {
             Expr::Binary(a, op, b) => Expr::Binary(self.expr(a)?, op, self.expr(b)?),
             Expr::Call(callee, args) => {
@@ -115,10 +135,10 @@ impl PartialResolver {
     fn resolve(&mut self, symbol: Symbol, src: &SourceRef) -> Result<VarRef, PrintableError> {
         let mut outermost_func = true;
         println!("Resolving {}", symbol);
-        println!("{:?}", self.scopes);
+        println!("{:?}", self.stack);
 
-        for func in self.scopes.iter_mut().rev() {
-            for scope in func.iter_mut().rev() {
+        for (func_idx, func) in self.stack.iter_mut().enumerate().rev() {
+            for (scope_idx, scope) in func.scopes.iter_mut().enumerate().rev() {
                 for var in scope.iter_mut().rev() {
                     if var == &symbol {
                         // If this variable wasn't defined in the current function we
@@ -126,7 +146,6 @@ impl PartialResolver {
                         if !outermost_func {
                             var.make_upvalue();
                         }
-
                         return Ok(VarRef::new(var));
                     }
                 }
@@ -136,21 +155,21 @@ impl PartialResolver {
         Err(PrintableError::new(format!("Unable to resolve symbol: {}", symbol), src.clone()))
     }
     fn begin_func(&mut self) {
-        self.scopes.push(vec![vec![]]);
+        self.stack.push(FuncScope::new());
     }
     fn end_func(&mut self) {
-        self.scopes.pop();
+        self.stack.pop();
     }
     fn begin_scope(&mut self) {
-        self.scopes.last_mut().unwrap().push(vec![])
+        self.stack.last_mut().unwrap().scopes.push(vec![]);
     }
     fn end_scope(&mut self) {
-        self.scopes.last_mut().unwrap().pop();
+        self.stack.last_mut().unwrap().scopes.pop();
     }
     fn declare(&mut self, symbol: Symbol) -> VarDecl {
         let sym = self.uniq.gen(symbol);
         let vd = VarDecl::new(sym.clone());
-        self.scopes.last_mut().unwrap().last_mut().unwrap().push(vd.clone());
+        self.stack.last_mut().unwrap().scopes.last_mut().unwrap().push(vd.clone());
         vd
     }
 }
@@ -177,7 +196,7 @@ impl PartialResolver {
 /// }
 /// So future passes can easily compare by the number. This makes implementing closures
 /// much easier.
-pub fn uniq(ast: Stmt<Symbol, Symbol>, symbolizer: Symbolizer) -> Result<Stmt<VarDecl, VarRef>, PrintableError> {
+pub fn uniq(ast: StmtIn, symbolizer: Symbolizer) -> Result<StmtOut, PrintableError> {
     PartialResolver::new(symbolizer).stmt(ast)
 }
 
