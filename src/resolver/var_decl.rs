@@ -5,7 +5,7 @@ use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
 use crate::{Source, SourceRef, Symbol, Symbolizer};
 use crate::ast::parser_func::ParserFunc;
 use crate::printable_error::PrintableError;
-use crate::uniq_pass::uniq_symbol::{UniqSymbol, UniqSymbolizer};
+use crate::resolver::uniq_symbol::{UniqSymbol, UniqSymbolizer};
 
 
 #[derive(Debug, Clone)]

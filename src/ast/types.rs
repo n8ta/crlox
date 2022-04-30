@@ -49,7 +49,7 @@ impl<T: Clone + PartialEq + Display,
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Stmt<
     VarDeclT: Clone + PartialEq + Display,
     VarRefT: Clone + PartialEq + Display,

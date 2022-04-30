@@ -2,8 +2,9 @@ use std::fmt::{Debug, Display, Formatter};
 use crate::ast::parser_func::ParserFunc;
 use crate::native_func::NativeFunc;
 use crate::Symbol;
+use crate::resolver::resolved_func::ResolvedFunc;
 // use crate::closure::RtClosure;
-use crate::uniq_pass::uniq_symbol::UniqSymbol;
+use crate::resolver::uniq_symbol::UniqSymbol;
 
 #[derive(Clone, PartialEq)]
 pub enum Value {
@@ -11,7 +12,7 @@ pub enum Value {
     Bool(bool),
     Nil,
     String(Symbol),
-    Func(ParserFunc<UniqSymbol, UniqSymbol>),
+    Func(ResolvedFunc),
     Native(NativeFunc),
     // Closure(RtClosure),
     // Class(Class),

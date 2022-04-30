@@ -1,7 +1,8 @@
 pub mod uniq_symbol;
 pub(crate) mod var_ref;
 pub(crate) mod var_decl;
-mod resolved_func;
+pub(crate) mod resolved_func;
+mod func_scope;
 
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, UpperExp};
@@ -11,11 +12,13 @@ use crate::{Source, SourceRef, Symbol, Symbolizer};
 use crate::ast::parser::Parser;
 use crate::ast::parser_func::{ParserFunc, ParserFuncInner};
 use crate::printable_error::PrintableError;
-use crate::uniq_pass::uniq_symbol::{UniqSymbol, UniqSymbolizer};
-use crate::uniq_pass::var_decl::VarDecl;
-use crate::uniq_pass::var_ref::VarRef;
+use crate::resolver::func_scope::FuncScope;
+use crate::resolver::resolved_func::ResolvedFunc;
+use crate::resolver::uniq_symbol::{UniqSymbol, UniqSymbolizer};
+use crate::resolver::var_decl::VarDecl;
+use crate::resolver::var_ref::VarRef;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Upvalue {
     sym: UniqSymbol,
     typ: UpvalueType,
@@ -25,24 +28,21 @@ impl Upvalue {
     pub fn new(sym: UniqSymbol, typ: UpvalueType) -> Self { Upvalue { sym, typ } }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum UpvalueType {
     Root,
     Captured(u8),
 }
 
-#[derive(Clone)]
-pub struct FuncScope {
-    upvalues: Vec<Upvalue>,
-    scopes: Vec<Vec<VarDecl>>,
-}
-
-impl Debug for FuncScope {
+impl Display for UpvalueType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("Func - {:?}\n", self.upvalues))?;
-        f.write_str(&format!("    scopes: {:?}\n", self.scopes))
+        match self {
+            UpvalueType::Root => write!(f, "r"),
+            UpvalueType::Captured(idx) => write!(f, "c{}", idx),
+        }
     }
 }
+
 
 impl Debug for PartialResolver {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -53,30 +53,6 @@ impl Debug for PartialResolver {
     }
 }
 
-impl FuncScope {
-    pub fn new() -> Self {
-        FuncScope {
-            upvalues: vec![],
-            scopes: vec![vec![]],
-        }
-    }
-    pub fn add_root(&mut self, var: UniqSymbol) -> u8 {
-        if let Some((idx, _)) = self.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == var) {
-            idx as u8
-        } else {
-            self.upvalues.push(Upvalue::new(var, UpvalueType::Root));
-            (self.upvalues.len() - 1) as u8
-        }
-    }
-    pub fn capture_upvalue(&mut self, parent_idx: u8, sym: UniqSymbol) -> u8 {
-        if let Some((idx, _)) = self.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == sym) {
-            idx as u8
-        } else {
-            self.upvalues.push(Upvalue::new(sym, UpvalueType::Captured(parent_idx)));
-            (self.upvalues.len() - 1) as u8
-        }
-    }
-}
 
 struct PartialResolver {
     uniq: UniqSymbolizer,
@@ -96,12 +72,12 @@ pub fn map_result<InputT, OutputT, ErrT, F: FnMut(InputT) -> Result<OutputT, Err
     Ok(passing)
 }
 
-type ParserFuncIn = ParserFunc<Symbol, Symbol>;
-type ParserFuncOut = ParserFunc<VarDecl, VarRef>;
-type StmtIn = Stmt<Symbol, Symbol, ParserFuncIn>;
-type StmtOut = Stmt<VarDecl, VarRef, ParserFuncOut>;
-type ExprTyIn = ExprTy<Symbol, Symbol, ParserFuncIn>;
-type ExprTyOut = ExprTy<VarDecl, VarRef, ParserFuncOut>;
+type FuncIn = ParserFunc<Symbol, Symbol>;
+type FuncOut = ResolvedFunc;
+type StmtIn = Stmt<Symbol, Symbol, FuncIn>;
+type StmtOut = Stmt<VarDecl, VarRef, FuncOut>;
+type ExprTyIn = ExprTy<Symbol, Symbol, FuncIn>;
+type ExprTyOut = ExprTy<VarDecl, VarRef, FuncOut>;
 
 impl PartialResolver {
     pub fn new(symbolizer: Symbolizer) -> PartialResolver { PartialResolver { uniq: UniqSymbolizer::new(symbolizer), stack: vec![FuncScope::new()] } }
@@ -150,8 +126,9 @@ impl PartialResolver {
                 self.begin_scope();
                 let body = self.stmt(*f.body.clone())?; // todo: this could be pretty slow
                 self.end_scope();
-                self.end_func();
-                Stmt::Function(ParserFunc::new(name, new_args, body, f.name_context.clone(), f.context.clone()))
+                let func_scope = self.end_func();
+                let rfunc = ResolvedFunc::new(name, new_args, body, f.name_context.clone(), f.context.clone(), func_scope.upvalues);
+                Stmt::Function(rfunc)
             }
             Stmt::Return(val) => {
                 match val {
@@ -220,7 +197,7 @@ impl PartialResolver {
                 let vr = VarRef::new(&decl);
                 let mut capture_idx = self.stack[func_idx].add_root(decl.sym());
                 for func in &mut self.stack[func_idx + 1..] {
-                    func.capture_upvalue(capture_idx, decl.sym());
+                    capture_idx = func.capture_upvalue(capture_idx, decl.sym());
                 }
                 Ok(vr)
             }
@@ -231,8 +208,8 @@ impl PartialResolver {
     fn begin_func(&mut self) {
         self.stack.push(FuncScope::new());
     }
-    fn end_func(&mut self) {
-        self.stack.pop();
+    fn end_func(&mut self) -> FuncScope {
+        self.stack.pop().unwrap()
     }
     fn begin_scope(&mut self) {
         self.stack.last_mut().unwrap().scopes.push(vec![]);
@@ -270,7 +247,7 @@ impl PartialResolver {
 /// }
 /// So future passes can easily compare by the number. This makes implementing closures
 /// much easier.
-pub fn uniq(ast: StmtIn, symbolizer: Symbolizer) -> Result<StmtOut, PrintableError> {
+pub fn resolve(ast: StmtIn, symbolizer: Symbolizer) -> Result<StmtOut, PrintableError> {
     PartialResolver::new(symbolizer).stmt(ast)
 }
 
@@ -293,7 +270,7 @@ fn test_plain_text() {
         let source = Rc::new(Source::new(input.to_string()));
         let tokens = crate::ast::scanner::scanner(source.clone(), symbolizer.clone()).unwrap();
         let ast = crate::ast::parser::parse(tokens, source).unwrap();
-        let uniq_ast = crate::uniq_pass::uniq(ast, symbolizer).unwrap();
+        let uniq_ast = crate::resolver::resolve(ast, symbolizer).unwrap();
         let uniq_ast_str = format!("{}", uniq_ast);
         let uniq_ast_str_rm_outer_scope: Vec<char> = uniq_ast_str.chars().collect();
         let uniq_cln: String = uniq_ast_str_rm_outer_scope[1..uniq_ast_str_rm_outer_scope.len() - 3].iter().collect::<String>();
@@ -315,17 +292,47 @@ fn test_plain_text() {
          "{ var l0 = 123;\n var l1 = rl0;\n var l2 = rl1 + rl0; }");
     pass("{ var x = 123; var y = x; var z = ((y)) + (x+2); }",
          "{ var l0 = 123; var l1 = rl0; var l2 = ((rl1)) + (rl0+2); }");
-    pass("fun test() { print 1; }", "fun l0() { print 1; }");
-    pass("fun test() { print test; }", "fun l0() { print rl0; }");
+    pass("fun test() { print 1; }", "fun l0[]() { print 1; }");
+    pass("fun test() { print test; }", "fun l0[]() { print rl0; }");
     pass("fun test() { var test = 0; print test; }",
-         "fun l0() { var l1 = 0; print rl1; }");
+         "fun l0[]() { var l1 = 0; print rl1; }");
     pass("fun test() { var x = 123; fun testinner() { return x; } }",
-         "fun l0() { var u1 = 123; fun l2() { return ru1;  } }");
+         "fun l0[1r]() { var u1 = 123; fun l2[1c0]() { return ru1;  } }");
     pass("var aa = 11; fun test() { var x = 123; fun testinner() { return x + aa; } }",
-         "var u0 = 11; fun l1() { var u2 = 123; fun l3() { return ru2 + ru0;  } }");
-    pass("fun ii(a, b, c) { print c + b + a + ii; }", "fun l0(l1, l2, l3) { print rl3 + rl2 + rl1 +rl0; }");
-    pass("fun ii(a, b, c) { {{{ print c + b + a; }}} }", "fun l0(l1, l2, l3) { {{{ print rl3 + rl2 + rl1; }}} }");
-    pass("fun ii(a, b, c) { var a = 0; print c + b + a; }", "fun l0(l1, l2, l3) { var l4 = 0; print rl3 + rl2 + rl4; }");
-    pass("fun makeClosure() { var local = \"local\"; fun closure() { print local; } return closure; } var closure = makeClosure(); closure();",
-         "fun l0() { var u1 = local; fun l2() { print ru1; } return rl2; } var l3 = rl0(); rl3();");
+         "var u0 = 11; fun l1[2r,0c0]() { var u2 = 123; fun l3[2c0,0c1]() { return ru2 + ru0;  } }");
+    pass("\
+    fun ii(a, b, c) { \
+        print c + b + a + ii;\
+     }",
+         "fun l0[](l1, l2, l3) { \
+         print rl3 + rl2 + rl1 +rl0;\
+    }");
+    pass("\
+    fun ii(a, b, c) { \
+        {{{ print c + b + a; }}}\
+        }",
+         "fun l0[](l1, l2, l3) {\
+         {{{ print rl3 + rl2 + rl1; }}}\
+          }");
+    pass("fun ii(a, b, c) { \
+    var a = 0; \
+    print c + b + a; \
+    }",
+         "fun l0[](l1, l2, l3) { \
+         var l4 = 0; \
+         print rl3 + rl2 + rl4; \
+         }");
+    pass("fun makeClosure() { \
+    var local = \"local\";\
+     fun closure() { print local; } \
+     return closure; \
+     } \
+     var closure = makeClosure(); \
+     closure();",
+         "funl0[1r]() { \
+     var u1 = local; \
+     fun l2[1c0]() { print ru1; } \
+     return rl2; } \
+     var l3 = rl0();\
+      rl3();");
 }

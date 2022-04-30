@@ -4,9 +4,9 @@ use std::rc::Rc;
 use crate::source_ref::SourceRef;
 use crate::ast::types::Stmt;
 use crate::{Symbol, Symbolizer};
-use crate::uniq_pass::uniq_symbol::UniqSymbol;
-use crate::uniq_pass::var_decl::VarDecl;
-use crate::uniq_pass::var_ref::VarRef;
+use crate::resolver::uniq_symbol::UniqSymbol;
+use crate::resolver::var_decl::VarDecl;
+use crate::resolver::var_ref::VarRef;
 
 
 #[derive(Clone, Debug)]
@@ -59,7 +59,7 @@ impl<T: Clone + PartialEq + Display, S: Clone + PartialEq + Display> ParserFunc<
     // pub fn root(symbolizer: Symbolizer, stmt: Stmt<VarDecl, VarRef, ParserFunc<VarDecl, VarRef>>) -> ParserFunc<VarDecl, VarRef> {
     //     let mut s = symbolizer.clone();
     //     let name = s.get_symbol("root-func".to_string());
-    //     VarDecl::new(UniqS)
+    //     VarDecl::new()
     //     let inner: ParserFuncInner<VarDecl, VarRef, ParserFunc<VarDecl, VarRef>> = ParserFuncInner { name, args: vec![], body: Box::new(stmt), name_context: SourceRef::simple(), context: SourceRef::simple() };
     //     let inner: Rc<ParserFuncInner<VarDecl, VarRef, ParserFunc<VarDecl, VarRef>>> = Rc::new(inner);
     //     let pfunc: ParserFunc<VarDecl, VarRef> = ParserFunc { inner };

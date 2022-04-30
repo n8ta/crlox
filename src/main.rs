@@ -21,7 +21,7 @@ mod debug;
 // mod closure;
 mod ast;
 // mod compiler_ast;
-mod uniq_pass;
+mod resolver;
 mod printable_error;
 // mod compiler_ast;
 
@@ -58,7 +58,7 @@ fn main() {
     let tokens = crate::ast::scanner::scanner(source.clone(), symbolizer.clone()).unwrap();
     let ast = crate::ast::parser::parse(tokens, source).unwrap();
 
-    let ast = match crate::uniq_pass::uniq(ast, symbolizer)
+    let ast = match crate::resolver::resolve(ast, symbolizer)
     {
         Ok(uniq_ast) => uniq_ast,
         Err(err) => {
