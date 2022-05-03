@@ -5,6 +5,7 @@ use crate::Symbol;
 use crate::resolver::resolved_func::ResolvedFunc;
 // use crate::closure::RtClosure;
 use crate::resolver::uniq_symbol::UniqSymbol;
+use crate::resolver::upvalue_update::VarRefResolved;
 
 #[derive(Clone, PartialEq)]
 pub enum Value {
@@ -12,7 +13,7 @@ pub enum Value {
     Bool(bool),
     Nil,
     String(Symbol),
-    Func(ResolvedFunc),
+    Func(ResolvedFunc<VarRefResolved>),
     Native(NativeFunc),
     // Closure(RtClosure),
     // Class(Class),

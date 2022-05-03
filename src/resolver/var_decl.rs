@@ -38,6 +38,9 @@ impl VarDecl {
     pub fn sym(&self) -> UniqSymbol {
         self.inner.borrow().symbol.clone()
     }
+    pub fn typ(&self) -> VarDeclType {
+        self.inner.borrow().typ.clone()
+    }
 }
 
 impl PartialEq<Symbol> for VarDecl {

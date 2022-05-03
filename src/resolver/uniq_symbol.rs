@@ -38,12 +38,12 @@ pub struct UniqSymbolizer {
 }
 
 impl UniqSymbolizer {
-    pub fn new(symbolizer: Symbolizer) -> UniqSymbolizer { UniqSymbolizer { symbolizer, next: 0 } }
+    pub fn new(symbolizer: Symbolizer) -> UniqSymbolizer { UniqSymbolizer { symbolizer, next: 1 } }
     pub fn gen(&mut self, symbol: Symbol) -> UniqSymbol {
         self.next += 1;
-        UniqSymbol { id: self.next - 1, symbol  }
+        UniqSymbol { id: self.next - 1, symbol }
     }
     pub fn root(&mut self) -> UniqSymbol {
-        self.gen(self.symbolizer.clone().get_symbol("root-function".to_string()))
+        UniqSymbol { symbol: self.symbolizer.clone().get_symbol("root-function".to_string()), id: 0 }
     }
 }

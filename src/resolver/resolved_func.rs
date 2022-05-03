@@ -8,17 +8,17 @@ use crate::resolver::Upvalue;
 use crate::resolver::var_decl::VarDecl;
 use crate::resolver::var_ref::VarRef;
 
-#[derive(PartialEq, Clone)]
-pub struct ResolvedFunc {
-    upvalues: Vec<Upvalue>,
-    func: Box<Stmt<VarDecl, VarRef, Self>>,
+#[derive(PartialEq, Clone, Debug)]
+pub struct ResolvedFunc<RefT: Display + Clone + PartialEq> {
+    pub upvalues: Vec<Upvalue>,
+    pub func: Box<Stmt<VarDecl, RefT, Self>>,
     pub name: VarDecl,
     pub args: Vec<VarDecl>,
-    name_context: SourceRef,
-    body_context: SourceRef,
+    pub name_context: SourceRef,
+    pub body_context: SourceRef,
 }
 
-impl Display for ResolvedFunc {
+impl<RefT: Display + Clone + PartialEq> Display for ResolvedFunc<RefT> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "fun {}", self.name)?;
         f.write_str("[")?;
@@ -40,13 +40,13 @@ impl Display for ResolvedFunc {
     }
 }
 
-impl ResolvedFunc {
+impl<T: Display + Clone + PartialEq> ResolvedFunc<T> {
     pub fn new(name: VarDecl,
                args: Vec<VarDecl>,
-               func: Stmt<VarDecl, VarRef, Self>,
+               func: Stmt<VarDecl, T, Self>,
                name_context: SourceRef,
                body_context: SourceRef,
-               upvalues: Vec<Upvalue>) -> ResolvedFunc {
+               upvalues: Vec<Upvalue>) -> ResolvedFunc<T> {
         ResolvedFunc { upvalues, func: Box::new(func), name, args, name_context, body_context }
     }
 }
