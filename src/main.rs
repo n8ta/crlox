@@ -5,25 +5,25 @@ use std::process::exit;
 use std::rc::Rc;
 use crate::source_ref::{Source, SourceRef};
 use crate::symbolizer::{Symbol, Symbolizer};
+use crate::vm::VM;
 
 mod value;
-// mod func;
-// mod ops;
 mod source_ref;
-// mod chunk;
-// mod vm;
+mod chunk;
 mod scanner;
 mod trie;
 mod symbolizer;
-// mod e2e_tests;
+mod e2e_tests;
 mod native_func;
 mod debug;
-// mod closure;
+mod closure;
 mod ast;
-// mod compiler_ast;
+mod compiler_ast;
 mod resolver;
 mod printable_error;
-// mod compiler_ast;
+mod func;
+mod ops;
+mod vm;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -33,7 +33,7 @@ fn main() {
         println!("Usage: ./rclox [source_file.lox]");
         exit(-1);
     };
-    let _dump_bytecode = if let Some(flag) = args.get(2) {
+    let dump_bytecode = if let Some(flag) = args.get(2) {
         flag == "--dump"
     } else { false };
 
@@ -58,7 +58,7 @@ fn main() {
     let tokens = crate::ast::scanner::scanner(source.clone(), symbolizer.clone()).unwrap();
     let ast = crate::ast::parser::parse(tokens, source).unwrap();
 
-    let ast = match crate::resolver::resolve(ast, symbolizer)
+    let ast = match crate::resolver::resolve(ast, symbolizer.clone())
     {
         Ok(uniq_ast) => uniq_ast,
         Err(err) => {
@@ -67,45 +67,16 @@ fn main() {
         }
     };
 
-    // let ast = match crate::resolver::resolve(ast)
-    // {
-    //     Ok(uniq_ast) => uniq_ast,
-    //     Err(err) => {
-    //         eprintln!("{}", err);
-    //         panic!("Uniq error");
-    //     }
-    // };
+    let bytecode = crate::compiler_ast::compile(ast, symbolizer.clone());
 
+    if dump_bytecode {
+        println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());
+        println!("{:?}", bytecode);
+    }
 
-
-    // println!("uniq: {}", uniq_ast);
-    // let rast = match crate::resolver::resolve(ast, &mut symbolizer) {
-    //     Ok(r) => r,
-    //     Err(e) => {
-    //         eprintln!("resolver error");
-    //         panic!("resolver")
-    //     }
-    // };
-
-    // let func = crate::compiler_ast::compile(&ast, symbolizer.clone());
-    // let func = match Compiler::compile(contents, symbolizer.clone()) {
-    //     Ok(c) => c,
-    //     Err(err) => {
-    //         eprintln!("{}", err);
-    //         exit(-1);
-    //     },
-    // };
-    //
-    // if dump_bytecode {
-    //     println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());
-    //     println!("{:?}", func);
-    // }
-    //
-    //
-    //
-    // let res = VM::interpret(func, symbolizer.clone());
-    // match res {
-    //     Err(r) => eprintln!("{}", r),
-    //     _ => {},
-    // }
+    let res = VM::interpret(bytecode, symbolizer.clone());
+    match res {
+        Err(r) => eprintln!("{}", r),
+        _ => {},
+    }
 }

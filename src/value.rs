@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display, Formatter};
 use crate::ast::parser_func::ParserFunc;
+use crate::closure::RtClosure;
+use crate::func::Func;
 use crate::native_func::NativeFunc;
 use crate::Symbol;
-use crate::resolver::resolved_func::ResolvedFunc;
-// use crate::closure::RtClosure;
 use crate::resolver::uniq_symbol::UniqSymbol;
 use crate::resolver::upvalue_update::VarRefResolved;
 
@@ -13,9 +13,9 @@ pub enum Value {
     Bool(bool),
     Nil,
     String(Symbol),
-    Func(ResolvedFunc<VarRefResolved>),
+    Func(Func),
     Native(NativeFunc),
-    // Closure(RtClosure),
+    Closure(RtClosure),
     // Class(Class),
     // Instance(Instance),
 }
@@ -29,7 +29,7 @@ impl Value {
             Value::String(_) => "string",
             Value::Func(_) => "fn",
             Value::Native(_) => "native fn",
-            // Value::Closure(_) => "closure",
+            Value::Closure(_) => "closure",
             // Value::Class(_) => "class",
             // Value::Instance(_) => "instance",
             // Value::BoundClosure(_) => "bound-closure",
@@ -42,7 +42,7 @@ impl Value {
             Value::Bool(b) => *b,
             Value::Func(_) => true,
             Value::Native(_) => true,
-            // Value::Closure(_) => true,
+            Value::Closure(_) => true,
             // Value::Class(_) => true,
             // Value::Instance(_) => true,
             // Value::BoundClosure(_) => true,
@@ -63,9 +63,9 @@ impl Display for Value {
             Value::Bool(b) => f.write_str(&format!("{}", b)),
             Value::Nil => f.write_str("NIL"),
             Value::String(s) => f.write_str(&format!("{}", s)),
-            Value::Func(lfn) => f.write_str(&format!("fn-{}[{}]", lfn.name, lfn.args.len())),
+            Value::Func(lfn) => f.write_str(&format!("fn-{}[{}]", lfn.name, lfn.arity)),
             Value::Native(nfn) => f.write_str(&format!("native-[{}]{}", nfn.name, nfn.arity)),
-            // Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name(), c.arity())),
+            Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name(), c.arity())),
             // Value::Class(class) => f.write_str(&format!("class-{}",class.name())),
             // Value::Instance(inst) => f.write_str(&format!("instance-{}",inst.name())),
             // Value::BoundClosure(bc) => f.write_str(&format!("bound-closure-{}", bc.name()))

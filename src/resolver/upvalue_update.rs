@@ -44,13 +44,14 @@ pub fn update_upvalues(func: ResolvedFunc<VarRef>) -> Result<ResolvedFunc<VarRef
 }
 
 impl Updater {
-    pub fn func(&mut self, func: ResolvedFunc<VarRef>, is_root: bool) -> Result<ResolvedFunc<VarRefResolved>, PrintableError> {
+    pub fn func(&mut self, mut func: ResolvedFunc<VarRef>, is_root: bool) -> Result<ResolvedFunc<VarRefResolved>, PrintableError> {
 
-        println!("Starting func stack len {}", self.stack.len());
         if !is_root {
             self.declare(func.name.clone());
         }
-        let body = func.func.clone();
+        let mut func_body = Box::new(Stmt::Return(None));
+        swap(&mut func.func, &mut func_body);
+
         self.stack.push((func, vec![vec![]]));
         self.begin_scope();
 
@@ -62,7 +63,7 @@ impl Updater {
             self.declare(var.clone())
         }
         self.begin_scope();
-        let new_body = self.stmt(*body)?;
+        let new_body = self.stmt(*func_body)?;
         self.end_scope();
         self.end_scope();
         let (func, _scopes) = self.stack.pop().unwrap();
@@ -135,7 +136,6 @@ impl Updater {
         self.stack.last_mut().unwrap().1.pop();
     }
     fn declare(&mut self, var: VarDecl) {
-        println!("{:?}", &self.stack);
         self.stack.last_mut().unwrap().1.last_mut().unwrap().push(var);
     }
     fn resolve(&self, var: VarRef) -> Result<VarRefResolved, PrintableError> {

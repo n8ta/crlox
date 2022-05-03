@@ -173,7 +173,6 @@ impl<'a> PartialResolver<'a> {
             for (scope_idx, scope) in func.scopes.iter_mut().enumerate().rev() {
                 for var in scope.iter_mut().rev() {
                     if var == &symbol {
-                        println!("Found {} in func {}/{} scope {}/{}", var.sym().symbol, func_idx + 1, len, scope_idx + 1, len_scopes);
                         // If this variable wasn't defined in the current function we
                         // are closing over it. Mark is it an upvalue root.
                         // if !outermost_func {
@@ -192,7 +191,6 @@ impl<'a> PartialResolver<'a> {
             if func_idx == self.stack.len() - 1 {
                 Ok(VarRef::new(&decl))
             } else {
-                println!("Making upvalue {:?}", &decl);
                 decl.make_upvalue();
                 let vr = VarRef::new(&decl);
                 let mut capture_idx = self.stack[func_idx].add_root(decl.sym());
@@ -316,45 +314,43 @@ fn test_plain_text() {
          "fun l0[]() {    fun l1[]() { print 1; }   }");
     pass("fun test() { print test; } ",
          "fun l0[]() {  fun l1[]() {     print l0;  }}");
-    // pass("fun test() { var test = 0; print test; }",
-    //      "fun l0[]() { var l1 = 0; print rl1; }");
-    // pass("fun test() { var x = 123; fun testinner() { return x; } }",
-    //      "fun l0[1r]() { var u1 = 123; fun l2[1c0]() { return ru1;  } }");
-    // pass("var aa = 11; fun test() { var x = 123; fun testinner() { return x + aa; } }",
-    //      "var u0 = 11; fun l1[2r,0c0]() { var u2 = 123; fun l3[2c0,0c1]() { return ru2 + ru0;  } }");
-    // pass("\
-    // fun ii(a, b, c) { \
-    //     print c + b + a + ii;\
-    //  }",
-    //      "fun l0[](l1, l2, l3) { \
-    //      print rl3 + rl2 + rl1 +rl0;\
-    // }");
-    // pass("\
-    // fun ii(a, b, c) { \
-    //     {{{ print c + b + a; }}}\
-    //     }",
-    //      "fun l0[](l1, l2, l3) {\
-    //      {{{ print rl3 + rl2 + rl1; }}}\
-    //       }");
-    // pass("fun ii(a, b, c) { \
-    // var a = 0; \
-    // print c + b + a; \
-    // }",
-    //      "fun l0[](l1, l2, l3) { \
-    //      var l4 = 0; \
-    //      print rl3 + rl2 + rl4; \
-    //      }");
-    // pass("fun makeClosure() { \
-    // var local = \"local\";\
-    //  fun closure() { print local; } \
-    //  return closure; \
-    //  } \
-    //  var closure = makeClosure(); \
-    //  closure();",
-    //      "funl0[1r]() { \
-    //  var u1 = local; \
-    //  fun l2[1c0]() { print ru1; } \
-    //  return rl2; } \
-    //  var l3 = rl0();\
-    //   rl3();");
+    pass("fun test() { var test = 0; print test; }",
+         "fun l0[]() {  funl1[]() {     var l2 = 0; print l1;    }}");
+    pass("fun test() { var x = 123; fun testinner() { return x; } }",
+         "funl0[]() {\
+                        fun l1[2r]() { var u2 = 123; fun l3[2c0]() { return u0;  }     }}");
+    pass("var aa = 11; fun test() { var x = 123; fun testinner() { return x + aa; } }",
+         "funl0[1r]() { \
+                   var u1 = 11; fun l2[3r,1c0]() { var u3 = 123; fun l4[3c0,1c1]() { return u0 + u1;  }     }}");
+    pass("fun ii(a, b, c) { \
+        print c + b + a + ii;\
+     }",
+         "funl0[]() { fun l1[](l2, l3, l4) { \
+         print l3 + l2 + l1 + l0;\
+    }}");
+    pass("\
+    fun ii(a, b, c) { \
+        {{{ print c + b + a; }}}\
+        }",
+         "funl0[]() {\
+         \
+         fun l1[](l2, l3, l4) {\
+         {{{ print l3 + l2 + l1; }}}\
+          }}");
+    pass("fun ii(a, b, c) { \
+    var a = 0; \
+    print c + b + a; \
+    }",
+         "funl0[]() { fun l1[](l2, l3, l4) { \
+         var l5 = 0; \
+         print l3 + l2 + l4; \
+         }}");
+    pass("fun makeClosure() { \
+     var local = \"local\";\
+     fun closure() { print local; } \
+     return closure; \
+     } \
+     var closure = makeClosure(); \
+     closure();",
+         "funl0[](){funl1[2r](){varu2=local;funl3[2c0](){printu0;}returnl2;}varl4=l0();l1();}");
 }

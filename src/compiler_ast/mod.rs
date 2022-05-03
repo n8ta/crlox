@@ -1,12 +1,21 @@
+use std::borrow::BorrowMut;
 use crate::ast::types::{BinOp, Expr, ExprTy, LogicalOp, Stmt, UnaryOp};
-use crate::{Chunk, SourceRef, Symbolizer, Value};
 use crate::func::{Func, FuncType};
 use crate::ops::Op;
-use crate::uniq::uniq_symbol::UniqSymbol;
+use crate::resolver::resolved_func::ResolvedFunc;
+use crate::resolver::upvalue_update::VarRefResolved;
+use crate::resolver::var_decl::VarDecl;
+use crate::{SourceRef, Symbolizer};
+use crate::chunk::Chunk;
+use crate::value::Value;
 
 struct SubCompiler {
     chunk: Chunk,
+    func: ResolvedFunc<VarRefResolved>,
 }
+
+type StmtT = Stmt<VarDecl, VarRefResolved, ResolvedFunc<VarRefResolved>>;
+type ExprTyT = ExprTy<VarDecl, VarRefResolved, ResolvedFunc<VarRefResolved>>;
 
 pub(crate) struct Compiler {
     stack: Vec<SubCompiler>,
@@ -19,7 +28,21 @@ impl Compiler {
     pub fn chunk(&mut self) -> &mut Chunk {
         &mut self.stack.last_mut().unwrap().chunk
     }
-    fn stmt(&mut self, stmt: &Stmt<UniqSymbol>) -> CompilerResult {
+    pub fn func(&mut self, func: &ResolvedFunc<VarRefResolved>, is_root: bool) -> Result<Func, String> {
+        self.stack.push(SubCompiler { func: func.clone(), chunk: Chunk::new() });
+        let inner = func.func.clone();
+        self.stmt(&inner)?;
+        let mut sub = self.stack.pop().unwrap();
+        sub.chunk.add(Op::Nil, SourceRef::simple());
+        sub.chunk.add(Op::Ret, SourceRef::simple());
+        let f = Func::new(func.name.clone().sym(), func.args.len() as u8, FuncType::Function, sub.chunk);
+        if !is_root {
+            let idx = self.chunk().add_const(Value::Func(f.clone()));
+            Op::Closure(idx).emit(self);
+        }
+        Ok(f)
+    }
+    fn stmt(&mut self, stmt: &StmtT) -> CompilerResult {
         match stmt {
             Stmt::Expr(expr) => self.expr(expr)?,
             Stmt::Block(block) => {
@@ -89,15 +112,7 @@ impl Compiler {
                 Op::Pop.emit(self); // pop while loop expression
             }
             Stmt::Function(func) => {
-                self.stack.push(SubCompiler { chunk: Chunk::new() });
-                let inner = func.body.clone();
-                self.stmt(&inner)?;
-                let mut sub = self.stack.pop().unwrap();
-                sub.chunk.add(Op::Nil, SourceRef::simple());
-                sub.chunk.add(Op::Ret, SourceRef::simple());
-                let f = Func::new(func.name.clone(), func.args.len() as u8, FuncType::Function, sub.chunk);
-                let idx = self.chunk().add_const(Value::Func(f));
-                Op::Closure(idx).emit(self);
+                self.func(func, false)?;
             }
             Stmt::Return(ret) => {
                 if let Some(expr) = ret {
@@ -111,7 +126,7 @@ impl Compiler {
         }
         Ok(())
     }
-    fn expr<T>(&mut self, expr: &ExprTy<T>) -> CompilerResult {
+    fn expr(&mut self, expr: &ExprTyT) -> CompilerResult {
         match &expr.expr {
             Expr::Binary(left, op, right) => {
                 self.expr(left)?;
@@ -151,17 +166,20 @@ impl Compiler {
                 Op::SetProperty(idx);
             }
             Expr::Variable(var) => {
-                todo!("new method");
+                match var {
+                    VarRefResolved::Upvalue(up_idx) => Op::GetUpvalue(*up_idx).emit(self),
+                    VarRefResolved::Stack(local_idx) => Op::GetLocal(*local_idx).emit(self),
+                };
                 // let resolved = var.resolved.clone().unwrap();
                 // Op::GetLocal(resolved.offset as u8).emit(self);
             }
             Expr::Super(_, ) => todo!(""),
             Expr::Assign(a, rhs) => {
-                // let resolution = c.clone().unwrap();
-                // TODO: Closure
-                // self.expr(rhs);
-                todo!("new method");
-                // Op::SetLocal(1 as u8).emit(self);
+                self.expr(rhs)?;
+                match a {
+                    VarRefResolved::Upvalue(idx) => Op::SetUpvalue(*idx).emit(self),
+                    VarRefResolved::Stack(idx) => Op::SetLocal(*idx).emit(self),
+                };
             }
             Expr::Logical(lhs, op, rhs) => {
                 match op {
@@ -225,12 +243,7 @@ impl Compiler {
     }
 }
 
-pub fn compile(stmt: &Stmt<UniqSymbol>, mut symbolizer: Symbolizer) -> Func<UniqSymbol> {
-    let mut c = Compiler { stack: vec![SubCompiler { chunk: Chunk::new() }], symbolizer: symbolizer.clone() };
-    c.stmt(stmt);
-    let mut chunk = c.stack[0].chunk.clone();
-    chunk.code.push(Op::Ret);
-    let sym = UniqSymbol { id: 0, symbol: symbolizer.get_symbol(format!("root")) };
-    Func::new(sym,
-              0, FuncType::Function, chunk)
+pub fn compile(func: ResolvedFunc<VarRefResolved>, mut symbolizer: Symbolizer) -> Func {
+    let mut c = Compiler { stack: vec![], symbolizer: symbolizer.clone() };
+    c.func(&func, true).unwrap()
 }

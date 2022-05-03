@@ -34,11 +34,9 @@ impl FuncScope {
     }
     pub fn add_root(&mut self, var: UniqSymbol) -> u8 {
         if let Some((idx, _)) = self.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == var) {
-            println!("Adding root again at {} for {}-{}", idx, var.clone(), var.symbol);
             idx as u8
         } else {
             self.upvalues.push(Upvalue::new(var.clone(), UpvalueType::Root));
-            println!("Pushing new root at {} for {}-{}", self.upvalues.len()-1, var, var.symbol);
             (self.upvalues.len() - 1) as u8
 
         }
@@ -47,7 +45,6 @@ impl FuncScope {
         if let Some((idx, _)) = self.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == sym) {
             idx as u8
         } else {
-            println!("Captured {} from index {}", sym, parent_idx);
             self.upvalues.push(Upvalue::new(sym, UpvalueType::Captured(parent_idx)));
             (self.upvalues.len() - 1) as u8
         }
