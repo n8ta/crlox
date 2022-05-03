@@ -13,11 +13,11 @@ pub struct WrappedValue {
     pub inner_value: Value,
 }
 
-
 /// Runtime closure
 #[derive(Clone, PartialEq)]
 pub struct RtClosure {
     pub func: Func,
+    pub upvalues: Vec<Rc<RefCell<WrappedValue>>>,
 }
 
 impl Debug for RtClosure {
@@ -28,10 +28,14 @@ impl Debug for RtClosure {
 
 impl RtClosure {
     pub fn new(func: Func) -> Self {
-        RtClosure { func }
+        let mut upvalues = vec![];
+        for _ in 0..func.num_upvalues {
+            upvalues.push(Rc::new(RefCell::new(WrappedValue { inner_value: Value::Nil })))
+        }
+        RtClosure { func, upvalues }
     }
     pub fn name(&self) -> UniqSymbol {
-        self.func.name()
+        self.func.name().symbol
     }
     pub fn arity(&self) -> u8 {
         self.func.arity()

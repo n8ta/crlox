@@ -60,7 +60,7 @@ impl Display for VarDecl {
             VarDeclType::Local => "l",
             VarDeclType::ProgramRoot => "r",
         };
-        f.write_str(&format!("{}{}", typ, self.inner.borrow().symbol.id))
+        f.write_str(&format!("{}", typ))
     }
 }
 

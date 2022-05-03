@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::ptr::write;
 use crate::scanner::{Token, TType};
 use crate::{SourceRef, Symbol};
 use crate::ast::parser_func::ParserFunc;
@@ -55,7 +56,7 @@ pub enum Stmt<
     VarRefT: Clone + PartialEq + Display,
     FuncT: PartialEq + Clone + Display> {
     Expr(ExprTy<VarDeclT, VarRefT, FuncT>),
-    Block(Box<Vec<Stmt<VarDeclT, VarRefT, FuncT>>>),
+    Block(Box<Vec<Stmt<VarDeclT, VarRefT, FuncT>>>, usize),
     Print(ExprTy<VarDeclT, VarRefT, FuncT>),
     Variable(VarDeclT, ExprTy<VarDeclT, VarRefT, FuncT>, SourceRef),
     If(ExprTy<VarDeclT, VarRefT, FuncT>, Box<Stmt<VarDeclT, VarRefT, FuncT>>, Option<Box<Stmt<VarDeclT, VarRefT, FuncT>>>),
@@ -71,25 +72,23 @@ impl<
     FuncT: PartialEq + Clone + Display
 > Display for Stmt<DeclT, RefT, FuncT> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Stmt::Expr(expr) => format!("{};", expr.expr),
-            Stmt::Block(block) => {
-                let mut str = "{\n".to_string();
+        match self {
+            Stmt::Expr(expr) => write!(f, "{};", expr.expr)?,
+            Stmt::Block(block, size) => {
+                write!(f, "{{\n{}:", size)?;
                 for stmt in block.iter() {
-                    str.push_str(&format!("{}", stmt));
+                    write!(f, "{}", stmt)?;
                 }
-                str.push_str("}\n");
-                str
+                write!(f, "}}\n")?
             }
-            Stmt::Print(expr) => format!("print {};", expr.expr),
-            Stmt::Variable(name, expr, _) => format!("var {} = {};", name, expr.expr),
-            Stmt::If(expr, block, else_block) => format!("if ({}) {{\n {} \n}} else {{\n{}\n}}\n", expr, block, else_block.as_ref().map(|b| format!("else {}", b)).unwrap_or_else(|| "".to_string())),
-            Stmt::While(expr, block) => format!("while ({}) {{\n {} \n}}", expr.expr, block),
-            Stmt::Function(func) => format!("{}", func),
-            Stmt::Return(expr) => format!("return {};", if let Some(expr) = expr { format!("{}", expr.expr) } else { "".to_string() }),
+            Stmt::Print(expr) => write!(f, "print {};", expr.expr)?,
+            Stmt::Variable(name, expr, _) => write!(f, "var {} = {};", name, expr.expr)?,
+            Stmt::If(expr, block, else_block) => write!(f, "if ({}) {{\n {} \n}} else {{\n{}\n}}\n", expr, block, else_block.as_ref().map(|b| format!("else {}", b)).unwrap_or_else(|| "".to_string()))?,
+            Stmt::While(expr, block) => write!(f, "while ({}) {{\n {} \n}}", expr.expr, block)?,
+            Stmt::Function(func) => write!(f, "{}", func)?,
+            Stmt::Return(expr) => write!(f, "return {};", if let Some(expr) = expr { format!("{}", expr.expr) } else { "".to_string() })?,
         };
-        f.write_str(&s);
-        f.write_str("\n")
+        write!(f, "\n")
     }
 }
 

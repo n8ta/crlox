@@ -3,19 +3,19 @@ use crate::ast::types::{BinOp, Expr, ExprTy, LogicalOp, Stmt, UnaryOp};
 use crate::func::{Func, FuncType};
 use crate::ops::Op;
 use crate::resolver::resolved_func::ResolvedFunc;
-use crate::resolver::upvalue_update::VarRefResolved;
-use crate::resolver::var_decl::VarDecl;
+use crate::resolver::upvalue_update::{VarRefResolved, VarRefResolvedType};
+use crate::resolver::var_decl::{VarDecl, VarDeclType};
 use crate::{SourceRef, Symbolizer};
 use crate::chunk::Chunk;
 use crate::value::Value;
 
 struct SubCompiler {
     chunk: Chunk,
-    func: ResolvedFunc<VarRefResolved>,
+    func: ResolvedFunc<VarRefResolved, VarRefResolved>,
 }
 
-type StmtT = Stmt<VarDecl, VarRefResolved, ResolvedFunc<VarRefResolved>>;
-type ExprTyT = ExprTy<VarDecl, VarRefResolved, ResolvedFunc<VarRefResolved>>;
+type StmtT = Stmt<VarRefResolved, VarRefResolved, ResolvedFunc<VarRefResolved, VarRefResolved>>;
+type ExprTyT = ExprTy<VarRefResolved, VarRefResolved, ResolvedFunc<VarRefResolved, VarRefResolved>>;
 
 pub(crate) struct Compiler {
     stack: Vec<SubCompiler>,
@@ -28,14 +28,14 @@ impl Compiler {
     pub fn chunk(&mut self) -> &mut Chunk {
         &mut self.stack.last_mut().unwrap().chunk
     }
-    pub fn func(&mut self, func: &ResolvedFunc<VarRefResolved>, is_root: bool) -> Result<Func, String> {
+    pub fn func(&mut self, func: &ResolvedFunc<VarRefResolved, VarRefResolved>, is_root: bool) -> Result<Func, String> {
         self.stack.push(SubCompiler { func: func.clone(), chunk: Chunk::new() });
         let inner = func.func.clone();
         self.stmt(&inner)?;
         let mut sub = self.stack.pop().unwrap();
         sub.chunk.add(Op::Nil, SourceRef::simple());
         sub.chunk.add(Op::Ret, SourceRef::simple());
-        let f = Func::new(func.name.clone().sym(), func.args.len() as u8, FuncType::Function, sub.chunk);
+        let f = Func::new(func.name.clone(), func.args.len() as u8, FuncType::Function, sub.chunk, func.upvalues.len());
         if !is_root {
             let idx = self.chunk().add_const(Value::Func(f.clone()));
             Op::Closure(idx).emit(self);
@@ -45,9 +45,12 @@ impl Compiler {
     fn stmt(&mut self, stmt: &StmtT) -> CompilerResult {
         match stmt {
             Stmt::Expr(expr) => self.expr(expr)?,
-            Stmt::Block(block) => {
+            Stmt::Block(block, scope_size) => {
                 for stmt in block.iter() {
                     self.stmt(stmt)?;
+                }
+                for _ in 0..*scope_size {
+                    Op::Pop.emit(self);
                 }
             }
             Stmt::Print(val) => {
@@ -55,7 +58,16 @@ impl Compiler {
                 Op::Print.emit(self);
             }
             Stmt::Variable(name, init, src) => {
-                self.expr(init)?;
+                match name.typ {
+                    VarRefResolvedType::Upvalue(idx) => {
+                        Op::SetUpvalue(idx).emit(self);
+                    }
+                    VarRefResolvedType::Stack(_idx) => {
+                        self.expr(init)?;
+                    }
+                    VarRefResolvedType::Root => panic!("program root!")
+                }
+
             }
             Stmt::If(test, body, else_body) => {
                 /*
@@ -166,9 +178,11 @@ impl Compiler {
                 Op::SetProperty(idx);
             }
             Expr::Variable(var) => {
-                match var {
-                    VarRefResolved::Upvalue(up_idx) => Op::GetUpvalue(*up_idx).emit(self),
-                    VarRefResolved::Stack(local_idx) => Op::GetLocal(*local_idx).emit(self),
+                println!("Resolved to {}", var);
+                match var.typ {
+                    VarRefResolvedType::Upvalue(up_idx) => Op::GetUpvalue(up_idx).emit(self),
+                    VarRefResolvedType::Stack(local_idx) => Op::GetLocal(local_idx).emit(self),
+                    VarRefResolvedType::Root => panic!("program root!"),
                 };
                 // let resolved = var.resolved.clone().unwrap();
                 // Op::GetLocal(resolved.offset as u8).emit(self);
@@ -176,9 +190,10 @@ impl Compiler {
             Expr::Super(_, ) => todo!(""),
             Expr::Assign(a, rhs) => {
                 self.expr(rhs)?;
-                match a {
-                    VarRefResolved::Upvalue(idx) => Op::SetUpvalue(*idx).emit(self),
-                    VarRefResolved::Stack(idx) => Op::SetLocal(*idx).emit(self),
+                match a.typ {
+                    VarRefResolvedType::Upvalue(idx) => Op::SetUpvalue(idx).emit(self),
+                    VarRefResolvedType::Stack(idx) => Op::SetLocal(idx).emit(self),
+                    VarRefResolvedType::Root => panic!("program root!")
                 };
             }
             Expr::Logical(lhs, op, rhs) => {
@@ -243,7 +258,7 @@ impl Compiler {
     }
 }
 
-pub fn compile(func: ResolvedFunc<VarRefResolved>, mut symbolizer: Symbolizer) -> Func {
+pub fn compile(func: ResolvedFunc<VarRefResolved, VarRefResolved>, mut symbolizer: Symbolizer) -> Func {
     let mut c = Compiler { stack: vec![], symbolizer: symbolizer.clone() };
     c.func(&func, true).unwrap()
 }

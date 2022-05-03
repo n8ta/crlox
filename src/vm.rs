@@ -273,10 +273,10 @@ impl VM {
                     self.bump_ip();
                 }
                 Op::GetUpvalue(idx) => {
-                    todo!("")
+                    self.get_upvalue(*idx);
                 }
                 Op::SetUpvalue(idx) => {
-                    todo!("")
+                    self.set_upvalue(*idx);
                 }
                 Op::Class(idx) => {
                     todo!("class")
@@ -519,6 +519,25 @@ impl VM {
 
     fn set_local(&mut self, idx: u8) -> Result<(), InterpError> {
         self.stack[self.frame.frame_offset + idx as usize] = self.peek().clone();
+        self.bump_ip();
+        Ok(())
+    }
+
+    fn get_upvalue(&mut self, idx: u8) -> Result<(), InterpError> {
+        #[cfg(debug_assertions)]
+        self.print_stack_frame("get local");
+        let peeked: Value = self.frame.closure.upvalues.get(idx as usize).unwrap().borrow().inner_value.clone();
+        self.push(peeked);
+        self.bump_ip();
+        Ok(())
+    }
+
+    fn set_upvalue(&mut self, idx: u8) -> Result<(), InterpError> {
+        {
+            let mut new_value = self.peek().clone();
+            let mut existing_value = self.frame.closure.upvalues[idx as usize].borrow_mut();
+            swap(&mut new_value, &mut existing_value.inner_value);
+        }
         self.bump_ip();
         Ok(())
     }

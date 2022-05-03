@@ -5,38 +5,52 @@ use crate::printable_error::PrintableError;
 use crate::resolver::map_result;
 use crate::resolver::resolved_func::ResolvedFunc;
 use crate::resolver::uniq_symbol::{UniqSymbol, UniqSymbolizer};
-use crate::resolver::upvalue_update::VarRefResolved::Upvalue;
 use crate::resolver::var_decl::{VarDecl, VarDeclType};
 use crate::resolver::var_ref::VarRef;
 use crate::SourceRef;
 
+
 #[derive(Clone, Debug, PartialEq)]
-pub enum VarRefResolved {
+pub struct VarRefResolved {
+    pub symbol: UniqSymbol,
+    pub typ: VarRefResolvedType,
+}
+
+impl VarRefResolved {
+    pub fn new(symbol: UniqSymbol, typ: VarRefResolvedType) -> VarRefResolved {
+        VarRefResolved { symbol, typ }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum VarRefResolvedType {
     Upvalue(u8),
     Stack(u8),
+    Root,
 }
 
 impl Display for VarRefResolved {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VarRefResolved::Upvalue(idx) => write!(f, "u{}", idx),
-            VarRefResolved::Stack(idx) => write!(f, "l{}", idx),
+        match self.typ {
+            VarRefResolvedType::Upvalue(idx) => write!(f, "u{}", idx),
+            VarRefResolvedType::Stack(idx) => write!(f, "l{}", idx),
+            VarRefResolvedType::Root => write!(f, "root"),
         }
     }
 }
 
 struct Updater {
-    stack: Vec<(ResolvedFunc<VarRef>, Vec<Vec<VarDecl>>)>,
+    stack: Vec<(FuncIn, Vec<Vec<VarDecl>>)>,
 }
 
-type FuncIn = ResolvedFunc<VarRef>;
-type FuncOut = ResolvedFunc<VarRefResolved>;
+type FuncIn = ResolvedFunc<VarDecl, VarRef>;
+type FuncOut = ResolvedFunc<VarRefResolved, VarRefResolved>;
 type StmtIn = Stmt<VarDecl, VarRef, FuncIn>;
-type StmtOut = Stmt<VarDecl, VarRefResolved, FuncOut>;
+type StmtOut = Stmt<VarRefResolved, VarRefResolved, FuncOut>;
 type ExprTyIn = ExprTy<VarDecl, VarRef, FuncIn>;
-type ExprTyOut = ExprTy<VarDecl, VarRefResolved, FuncOut>;
+type ExprTyOut = ExprTy<VarRefResolved, VarRefResolved, FuncOut>;
 
-pub fn update_upvalues(func: ResolvedFunc<VarRef>) -> Result<ResolvedFunc<VarRefResolved>, PrintableError> {
+pub fn update_upvalues(func: FuncIn) -> Result<FuncOut, PrintableError> {
     let mut up = Updater {
         stack: vec![],
     };
@@ -44,12 +58,12 @@ pub fn update_upvalues(func: ResolvedFunc<VarRef>) -> Result<ResolvedFunc<VarRef
 }
 
 impl Updater {
-    pub fn func(&mut self, mut func: ResolvedFunc<VarRef>, is_root: bool) -> Result<ResolvedFunc<VarRefResolved>, PrintableError> {
-
+    pub fn func(&mut self, mut func: FuncIn, is_root: bool) -> Result<FuncOut, PrintableError> {
         if !is_root {
             self.declare(func.name.clone());
         }
-        let mut func_body = Box::new(Stmt::Return(None));
+        let mut func_body = Box::new(StmtIn::Return(None));
+
         swap(&mut func.func, &mut func_body);
 
         self.stack.push((func, vec![vec![]]));
@@ -59,8 +73,9 @@ impl Updater {
             self.declare(self.stack.last().unwrap().0.name.clone());
         }
 
+        let mut new_args = vec![];
         for var in self.stack.last().unwrap().0.args.clone() {
-            self.declare(var.clone())
+            new_args.push(self.declare(var.clone()))
         }
         self.begin_scope();
         let new_body = self.stmt(*func_body)?;
@@ -68,22 +83,28 @@ impl Updater {
         self.end_scope();
         let (func, _scopes) = self.stack.pop().unwrap();
 
-        let f = ResolvedFunc::new(func.name, func.args, new_body, func.body_context, func.name_context, func.upvalues);
+        let func_name: VarRefResolved = if is_root {
+            VarRefResolved::new(func.name.sym(), VarRefResolvedType::Root)
+        } else {
+            self.resolve_decl(func.name)?
+        };
+
+        let f = ResolvedFunc::new(func_name, new_args, new_body, func.body_context, func.name_context, func.upvalues);
         Ok(f)
     }
     fn stmt(&mut self, stmt: StmtIn) -> Result<StmtOut, PrintableError> {
         let s = match stmt {
             StmtIn::Expr(expr) => StmtOut::Expr(self.expr(expr)?),
-            StmtIn::Block(blk) => {
+            StmtIn::Block(blk, _size_unset) => {
                 self.begin_scope();
                 let body = Box::new(map_result(*blk, |stmt| self.stmt(stmt))?);
-                self.end_scope();
-                StmtOut::Block(body)
+                let size_set = self.end_scope();
+                StmtOut::Block(body, size_set)
             }
             StmtIn::Print(expr) => StmtOut::Print(self.expr(expr)?),
             StmtIn::Variable(decl, value, src) => {
-                self.declare(decl.clone());
-                StmtOut::Variable(decl, self.expr(value)?, src)
+                let var_ref = self.declare(decl.clone());
+                StmtOut::Variable(var_ref, self.expr(value)?, src)
             }
             StmtIn::If(test, true_blk, false_blk) => {
                 let test = self.expr(test)?;
@@ -132,18 +153,28 @@ impl Updater {
     fn begin_scope(&mut self) {
         self.stack.last_mut().unwrap().1.push(vec![]);
     }
-    fn end_scope(&mut self) {
-        self.stack.last_mut().unwrap().1.pop();
+    fn end_scope(&mut self) -> usize {
+        self.stack.last_mut().unwrap().1.pop().unwrap().len()
     }
-    fn declare(&mut self, var: VarDecl) {
-        self.stack.last_mut().unwrap().1.last_mut().unwrap().push(var);
+    fn declare(&mut self, var: VarDecl) -> VarRefResolved {
+        if let VarDeclType::Local = var.typ() {
+            self.stack.last_mut().unwrap().1.last_mut().unwrap().push(var.clone());
+            let idx = flat(&self.stack.last_mut().unwrap().1).len() -1;
+            VarRefResolved::new(var.sym(), VarRefResolvedType::Stack(idx as u8))
+        } else {
+            let (idx, _up) = self.stack.last_mut().unwrap().0.upvalues.iter().enumerate().find(|(idx, up)| up.sym == var.sym()).unwrap();
+            VarRefResolved::new(var.sym(), VarRefResolvedType::Upvalue(idx as u8))
+        }
     }
     fn resolve(&self, var: VarRef) -> Result<VarRefResolved, PrintableError> {
-        let symbol = var.decl.sym();
-        match var.decl.typ() {
+        self.resolve_decl(var.decl)
+    }
+    fn resolve_decl(&self, decl: VarDecl) -> Result<VarRefResolved, PrintableError> {
+        let symbol = decl.sym();
+        match decl.typ() {
             VarDeclType::Upval => {
                 let (idx, _up) = self.stack.last().unwrap().0.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == symbol).expect("This upvalue to exist");
-                Ok(VarRefResolved::Upvalue(idx as u8))
+                Ok(VarRefResolved::new(symbol, VarRefResolvedType::Upvalue(idx as u8)))
             }
             VarDeclType::Local => {
                 let flattened = flat(&self.stack.last().unwrap().1);
@@ -151,7 +182,8 @@ impl Updater {
                     None => return Err(PrintableError::new(format!("Unable to find {} on the stack\n{:?}", symbol.symbol, flattened), SourceRef::simple())),
                     Some(i) => i,
                 };
-                Ok(VarRefResolved::Stack(idx as u8))
+                println!("Found {} at idx {}", symbol.symbol, idx);
+                Ok(VarRefResolved::new(symbol, VarRefResolvedType::Stack(idx as u8)))
             }
             VarDeclType::ProgramRoot => panic!("Cannot resolve program root varref"),
         }

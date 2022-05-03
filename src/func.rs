@@ -39,15 +39,15 @@ impl Debug for Func {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FuncInner {
-    pub name: UniqSymbol,
+    pub name: VarRefResolved,
     pub chunk: Chunk,
     pub arity: u8,
     pub ftype: FuncType,
-
+    pub num_upvalues: usize,
 }
 
 impl Func {
-    pub fn name(&self) -> UniqSymbol {
+    pub fn name(&self) -> VarRefResolved {
         self.inner.name.clone()
     }
     pub fn arity(&self) -> u8 {
@@ -57,12 +57,13 @@ impl Func {
         &self.inner.chunk
     }
 
-    pub fn new(name: UniqSymbol, arity: u8, ftype: FuncType, chunk: Chunk) -> Func {
+    pub fn new(name: VarRefResolved, arity: u8, ftype: FuncType, chunk: Chunk, num_upvalues: usize) -> Func {
         let inner = FuncInner {
             name,
             chunk,
             arity,
             ftype,
+            num_upvalues,
         };
 
         Func {

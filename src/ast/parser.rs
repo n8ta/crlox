@@ -40,7 +40,7 @@ impl Parser {
         while !self.is_at_end() {
             stmts.push(self.declaration()?)
         }
-        Ok(Stmt::Block(Box::new(stmts)))
+        Ok(Stmt::Block(Box::new(stmts,), 0))
     }
 
     fn check(&mut self, typ: TTypeId) -> bool {
@@ -197,7 +197,7 @@ impl Parser {
         let mut context = name_in_context.src.merge(&lbrace.src);
 
         let body =
-            if let (Stmt::Block(blk), rbrace) = self.block()? {
+            if let (Stmt::Block(blk, _), rbrace) = self.block()? {
                 context = context.merge(&rbrace);
                 *blk
             } else {
@@ -205,7 +205,7 @@ impl Parser {
             };
         Ok(ParserFunc::new(name,
                            params,
-                           Stmt::Block(Box::new(body)),
+                           Stmt::Block(Box::new(body), 0),
                            name_in_context.src.clone(),
                            context,
         ))
@@ -341,7 +341,7 @@ impl Parser {
         self.consume(TType::RightParen.id(), "Expected ')' after for loop")?;
         let mut body = self.statement()?;
         if let Some(increment) = increment {
-            body = Stmt::Block(Box::new(vec![body, Stmt::Expr(increment)]));
+            body = Stmt::Block(Box::new(vec![body, Stmt::Expr(increment)]), 0);
         }
         let src = self.tokens[self.current].src.clone();
         if condition.is_none() {
@@ -349,7 +349,7 @@ impl Parser {
         }
         body = Stmt::While(condition.unwrap(), Box::new(body));
         if let Some(init) = init {
-            body = Stmt::Block(Box::new(vec![init, body]))
+            body = Stmt::Block(Box::new(vec![init, body]), 0)
         }
         Ok(body)
     }
@@ -360,7 +360,7 @@ impl Parser {
             stmts.push(self.declaration()?)
         }
         let rbrace = self.consume(TType::RightBrace.id(), "Expected block to end with an '}'.")?;
-        Ok((Stmt::Block(Box::new(stmts)), rbrace.src))
+        Ok((Stmt::Block(Box::new(stmts), 0), rbrace.src))
     }
 
     fn print_statement(&mut self) -> Result<PStmt, ParserError> {

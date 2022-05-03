@@ -4,6 +4,7 @@ pub(crate) mod var_decl;
 pub(crate) mod resolved_func;
 mod func_scope;
 pub(crate) mod upvalue_update;
+mod var_decl_resolver;
 
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, UpperExp};
@@ -75,13 +76,13 @@ pub fn map_result<InputT, OutputT, ErrT, F: FnMut(InputT) -> Result<OutputT, Err
 }
 
 type FuncIn = ParserFunc<Symbol, Symbol>;
-type FuncOut = ResolvedFunc<VarRef>;
+type FuncOut = ResolvedFunc<VarDecl, VarRef>;
 type StmtIn = Stmt<Symbol, Symbol, FuncIn>;
 type StmtOut = Stmt<VarDecl, VarRef, FuncOut>;
 type ExprTyIn = ExprTy<Symbol, Symbol, FuncIn>;
 type ExprTyOut = ExprTy<VarDecl, VarRef, FuncOut>;
 
-type StmtFinal = Stmt<VarDecl, VarRefResolved, ResolvedFunc<VarRefResolved>>;
+type StmtFinal = Stmt<VarRefResolved, VarRefResolved, ResolvedFunc<VarRefResolved, VarRefResolved>>;
 
 
 impl<'a> PartialResolver<'a> {
@@ -89,9 +90,9 @@ impl<'a> PartialResolver<'a> {
     pub fn stmt(&mut self, stmt: StmtIn) -> Result<StmtOut, PrintableError> {
         let s: StmtOut = match stmt {
             Stmt::Expr(ex) => Stmt::Expr(self.expr(ex)?),
-            Stmt::Block(stmts) => {
+            Stmt::Block(stmts, _size) => {
                 self.begin_scope();
-                let s = Stmt::Block(Box::new(map_result(*stmts, |r| self.stmt(r))?));
+                let s = Stmt::Block(Box::new(map_result(*stmts, |r| self.stmt(r))?), _size);
                 self.end_scope();
                 s
             }
@@ -245,7 +246,7 @@ impl<'a> PartialResolver<'a> {
 /// }
 /// So future passes can easily compare by the number. This makes implementing closures
 /// much easier.
-pub fn resolve(ast: StmtIn, symbolizer: Symbolizer) -> Result<ResolvedFunc<VarRefResolved>, PrintableError> {
+pub fn resolve(ast: StmtIn, symbolizer: Symbolizer) -> Result<ResolvedFunc<VarRefResolved, VarRefResolved>, PrintableError> {
     let mut symbolizer = symbolizer.clone();
     let mut uniq_symbolizer = UniqSymbolizer::new(symbolizer);
     let root_function_symbol = uniq_symbolizer.root();
@@ -289,68 +290,72 @@ fn test_plain_text() {
     }
 
     pass("var x = 0; print x;",
-         "fun l0[]() { var l1 = 0; print l0; }");
-    pass("var x = 0; {{{ print x; }}}", "fun l0[]() {  var l1 = 0; {{{print l0;}}}     }");
+         "fun root[]() {1: var l0 = 0; print l0; }");
+    pass("var x = 0; {{{print x; }}}", "fun root[]() {1:  var l0 = 0; {0:{0:{0:print l0;}}}     }");
     pass("var x = 0; { var x = 1; {{ print x; }}}",
-         "fun l0[] () {   var l1 = 0; { var l2 = 1;  {{ print l1; }} } }");
+         "fun root[] () {1:   var l0 = 0; {1: var l1 = 1;  {0:{0: print l1; }} } }");
     pass("var x = 0; { var x = 1; } print x;",
-         "fun l0[]() {   var l1 = 0; { var l2 = 1; } print l0;   }");
+         "fun root[]() {1:   var l0 = 0; {1: var l1 = 1; } print l0;   }");
 
     pass("var x = 0; { var x = 1; print x; } { var x = 2; print x; } print x;",
-         "fun l0[]() { varl1 = 0;  {var l2 = 1; print l1; } { varl3 = 2; print l1; } print l0;   }");
-    pass("var x = 0; { var x = 1; var z = 3; } print x;",
-         "fun l0[]() { var l1 = 0; { var l2 = 1; var l3 = 3; } print l0;  }");
-    pass("         var x = 0; { var x = 1; var z = 3; print x; print z; print x; } print x;",
-         "fun l0[](){ var l1 = 0; { var l2 = 1; var l3 = 3; print l1; print l2; print l1; } print l0;    }");
-    pass("var x = 0; var y = x + x;",
-         "fun l0[]() {   var l1 = 0; var l2 = l0 + l0; } ");
+         "fun root[]() {1: varl0 = 0;  {1: var l1 = 1; print l1; } {1: varl1 = 2; print l1; } print l0;   }");
+    pass("               var x = 0; { var x = 1; var z = 3; } print x;",
+         "fun root[]() {1: var l0 = 0; {2: var l1 = 1; var l2 = 3; } print l0;  }");
+    pass("                 var x = 0; { var x = 1; var z = 3; print x; print z; print x; } print x;",
+         "fun root[](){1: var l0 = 0; {2: var l1 = 1; var l2 = 3; print l1; print l2; print l1; } print l0;    }");
+    pass("                   var x = 0; var y = x + x;",
+         "fun root[]() {2:   var l0 = 0; var l1 = l0 + l0; } ");
     pass("var x = 0; var y = x + x; print y;",
-         "fun l0[]() {  var l1 = 0; var l2 = l0 + l0; print l1;  }");
-    pass("{ var x = 123; var y = x; var z = y + x; }",
-         "fun l0[]() {     { var l1 = 123;\n var l2 = l0;\n var l3 = l1 + l0; }     }");
-    pass("{              var x = 123; var y = x; var z = ((y)) + (x+2); }",
-         "fun l0[](){    { var l1 = 123; var l2 = l0; var l3 = ((l1)) + (l0+2); }    }");
+         "fun root[]() {2:  var l0 = 0; var l1 = l0 + l0; print l1;  }");
+    pass("                      { var x = 123; var y = x; var z = y + x; }",
+         "fun root[]() {0:     {3: var l0 = 123;\n var l1 = l0;\n var l2 = l1 + l0; }     }");
+    pass("{                     var x = 123; var y = x; var z = ((y)) + (x+2); }",
+         "fun root[](){0:    {3:  var l0 = 123; var l1 = l0; var l2 = ((l1)) + (l0+2); }    }");
     pass("fun test() { print 1; }",
-         "fun l0[]() {    fun l1[]() { print 1; }   }");
+         "fun root[]() {1:    fun l0[]() {0: print 1; }   }");
     pass("fun test() { print test; } ",
-         "fun l0[]() {  fun l1[]() {     print l0;  }}");
+         "fun root[]() {1:  fun l0[]() {0:     print l0;  }}");
     pass("fun test() { var test = 0; print test; }",
-         "fun l0[]() {  funl1[]() {     var l2 = 0; print l1;    }}");
+         "fun root[]() {1:  funl0[]() {1:     var l1 = 0; print l1;    }}");
     pass("fun test() { var x = 123; fun testinner() { return x; } }",
-         "funl0[]() {\
-                        fun l1[2r]() { var u2 = 123; fun l3[2c0]() { return u0;  }     }}");
+         "fun root[]() {1:\
+                        fun l0[2r]() {1: var u0 = 123; fun l1[2c0]() {0: return u0;  }     }}");
     pass("var aa = 11; fun test() { var x = 123; fun testinner() { return x + aa; } }",
-         "funl0[1r]() { \
-                   var u1 = 11; fun l2[3r,1c0]() { var u3 = 123; fun l4[3c0,1c1]() { return u0 + u1;  }     }}");
-    pass("fun ii(a, b, c) { \
-        print c + b + a + ii;\
-     }",
-         "funl0[]() { fun l1[](l2, l3, l4) { \
-         print l3 + l2 + l1 + l0;\
-    }}");
-    pass("\
-    fun ii(a, b, c) { \
-        {{{ print c + b + a; }}}\
-        }",
-         "funl0[]() {\
-         \
-         fun l1[](l2, l3, l4) {\
-         {{{ print l3 + l2 + l1; }}}\
-          }}");
-    pass("fun ii(a, b, c) { \
-    var a = 0; \
-    print c + b + a; \
-    }",
-         "funl0[]() { fun l1[](l2, l3, l4) { \
-         var l5 = 0; \
-         print l3 + l2 + l4; \
-         }}");
-    pass("fun makeClosure() { \
-     var local = \"local\";\
-     fun closure() { print local; } \
-     return closure; \
-     } \
-     var closure = makeClosure(); \
-     closure();",
-         "funl0[](){funl1[2r](){varu2=local;funl3[2c0](){printu0;}returnl2;}varl4=l0();l1();}");
+         "funroot[1r](){1:varu0=11;funl0[3r,1c0](){1:varu0=123;funl1[3c0,1c1](){0:returnu0+u1;}}}");
+    // pass("fun ii(a, b, c) { \
+    //     print c + b + a + ii;\
+    //  }",
+    //      "funl0[]() {1: fun l1[](l2, l3, l4) {0: \
+    //      print l3 + l2 + l1 + l0;\
+    // }}");
+    // pass("\
+    // fun ii(a, b, c) { \
+    //     {{{ print c + b + a; }}}\
+    //     }",
+    //      "funl0[]() {1: \
+    //      \
+    //      fun l1[](l2, l3, l4) {0:\
+    //      {0:{0:{0: print l3 + l2 + l1; }}}\
+    //       }}");
+    // pass("fun ii(a, b, c) { \
+    // var a = 0; \
+    // print c + b + a; \
+    // }",
+    //      "funl0[]() {1: fun l1[](l2, l3, l4) {1: \
+    //      var l5 = 0; \
+    //      print l3 + l2 + l4; \
+    //      }}");
+    // pass("fun makeClosure() { \
+    //  var local = \"local\";\
+    //  fun closure() { print local; } \
+    //  return closure; \
+    //  } \
+    //  var closure = makeClosure(); \
+    //  closure();",
+    //      "funl0[](){2:\
+    //      funl1[2r](){1:\
+    //      varu2=local;\
+    //         funl3[2c0](){0:printu0;}\
+    //       returnl1;}\
+    //       varl4=l0();l1();}");
 }

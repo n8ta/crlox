@@ -33,9 +33,11 @@ fn main() {
         println!("Usage: ./rclox [source_file.lox]");
         exit(-1);
     };
-    let dump_bytecode = if let Some(flag) = args.get(2) {
-        flag == "--dump"
-    } else { false };
+
+    let flags: Vec<&String> = args.iter().skip(2).collect();
+    let dump_bytecode = flags.iter().find(|flag| **flag == "--dump").is_some();
+    let dump_resolved = flags.iter().find(|flag| **flag == "--resolved").is_some();
+
 
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -67,12 +69,18 @@ fn main() {
         }
     };
 
+    if dump_resolved {
+        println!("{}", ast);
+    }
+
     let bytecode = crate::compiler_ast::compile(ast, symbolizer.clone());
 
     if dump_bytecode {
         println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());
         println!("{:?}", bytecode);
     }
+
+
 
     let res = VM::interpret(bytecode, symbolizer.clone());
     match res {
