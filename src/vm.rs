@@ -5,11 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ops::{Op};
 use crate::value::Value;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
-use crate::closure::WrappedValue;
 use crate::func::Func;
 use crate::native_func::NativeFunc;
-use crate::resolver::uniq_symbol::UniqSymbol;
-use crate::resolver::{Upvalue, UpvalueType};
 
 #[derive(Debug)]
 pub enum InterpErrorType {
@@ -156,17 +153,12 @@ impl VM {
         }
     }
 
-    fn offset_ip_pos(&mut self, offset: usize) {
-        self.frame.ip += offset as usize;
-    }
-
-
     fn run(&mut self) -> Result<Value, InterpError> {
         loop {
             let ip = self.frame.ip;
 
             debug_println!("====================\n{} {}", ip, self.frame.closure.func.chunk().code.get(ip).unwrap());
-            match self.frame.closure.func.chunk().code.get(ip).unwrap() {
+            match self.frame.closure.func.chunk().code.get(ip).unwrap().clone() {
                 Op::Ret => {
                     #[cfg(debug_assertions)]
                     self.print_stack_frame("Pre ret stack");
@@ -191,7 +183,7 @@ impl VM {
                     }
                 }
                 Op::Const(idx) => {
-                    self.load_const(*idx)?;
+                    self.load_const(idx)?;
                 }
                 Op::Negate => {
                     self.negate()?;
@@ -247,52 +239,52 @@ impl VM {
                     self.bump_ip();
                 }
                 Op::GetLocal(idx) => {
-                    self.get_local(*idx)?;
+                    self.get_local(idx)?;
                 }
                 Op::SetLocal(idx) => {
-                    self.set_local(*idx)?;
+                    self.set_local(idx)?;
                 }
                 Op::RelJumpIfFalse(offset) => {
-                    self.rel_jump_if_false(*offset)?;
+                    self.rel_jump_if_false(offset)?;
                 }
                 Op::RelJumpIfTrue(offset) => {
-                    self.rel_jump_if_true(*offset)?;
+                    self.rel_jump_if_true(offset)?;
                 }
                 Op::RelJump(offset) => {
-                    self.rel_jump(*offset)?;
+                    self.rel_jump(offset)?;
                 }
                 Op::Call(arity) => {
-                    self.call(*arity)?;
+                    self.call(arity)?;
                 }
                 Op::SmallConst(val) => {
-                    self.small_const(*val)?;
+                    self.small_const(val)?;
                 }
                 Op::Closure(a) => {
-                    self.closure(*a)?;
+                    self.closure(a)?;
                 }
                 Op::Stack => {
                     self.debug_stack("debug");
                     self.bump_ip();
                 }
                 Op::GetUpvalue(idx) => {
-                    self.get_upvalue(*idx)?;
+                    self.get_upvalue(idx)?;
                 }
                 Op::SetUpvalue(idx) => {
-                    self.set_upvalue(*idx)?;
+                    self.set_upvalue(idx)?;
                 }
-                Op::Class(idx) => {
+                Op::Class(_idx) => {
                     todo!("class")
                     // self.class(*idx)?;
                 }
-                Op::SetProperty(idx) => {
+                Op::SetProperty(_idx) => {
                     todo!("set get")
                     // self.set_prop(*idx)?;
                 }
-                Op::GetProperty(idx) => {
+                Op::GetProperty(_idx) => {
                     todo!("set get")
                     // self.get_prop(*idx)?;
                 }
-                Op::Method(class_idx_in_const_arr) => {
+                Op::Method(_class_idx_in_const_arr) => {
                     todo!("method");
                     // self.method(*class_idx_in_const_arr)?;
                 }
@@ -317,12 +309,13 @@ impl VM {
     // }
 
     fn get_const(&self, idx: u8) -> Result<Value, InterpError> {
-        match self.frame.closure.func.chunk().constants.get(idx as usize) {
+        match self.frame.closure.chunk.constants.get(idx as usize) {
             Some(v) => Ok(v.clone()),
             None => Err(InterpError::compile(self.curr_source().cloned(), format!("Unable to find constant at index {}", idx)))
         }
     }
 
+    #[allow(dead_code)]
     fn get_const_str(&self, idx: u8) -> Result<Symbol, InterpError> {
         if let Value::String(sym) = self.get_const(idx)? {
             Ok(sym.clone())
@@ -362,7 +355,7 @@ impl VM {
     // }
 
     fn closure(&mut self, func_idx: u8) -> Result<(), InterpError> {
-        let func = &self.frame.closure.func.chunk().constants[func_idx as usize];
+        let func = self.get_const(func_idx)?;
         if let Value::Func(f) = func {
             let mut closure = crate::closure::RtClosure::new(f.clone(), &mut self.frame.closure.live_upvalues);
             self.push(Value::Closure(closure));

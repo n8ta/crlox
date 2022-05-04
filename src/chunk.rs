@@ -1,6 +1,3 @@
-#[cfg(debug_assertions)]
-use crate::debug_println;
-
 use crate::{SourceRef};
 use crate::ops::Op;
 use crate::value::Value;
@@ -26,7 +23,7 @@ impl Chunk {
         self.code.len()
     }
     pub fn add_const(&mut self, constant: Value) -> u8 {
-        match self.constants.iter().enumerate().find(|(idx,c)| **c == constant) {
+        match self.constants.iter().enumerate().find(|(_idx,c)| **c == constant) {
             None => {
                 self.constants.push(constant);
                 (self.constants.len() - 1) as u8

@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Deref;
 use crate::{Symbol, Symbolizer};
 
 #[derive(Clone)]

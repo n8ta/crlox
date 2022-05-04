@@ -58,6 +58,7 @@ impl Symbol {
     pub fn to_str(&self) -> &str {
         self.sym.as_str()
     }
+    #[allow(dead_code)]
     pub fn as_bytes(&self) -> &[u8] {
         self.sym.as_bytes()
     }

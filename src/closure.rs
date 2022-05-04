@@ -8,8 +8,6 @@ use crate::resolver::uniq_symbol::UniqSymbol;
 use crate::resolver::UpvalueType;
 use crate::value::Value;
 
-pub type UpvalueList = Vec<Rc<RefCell<WrappedValue>>>;
-
 #[derive(Debug)]
 pub struct WrappedValue {
     pub inner_value: Value,

@@ -3,7 +3,7 @@ use crate::chunk::{Chunk, Write};
 use crate::compiler_ast::Compiler;
 use crate::SourceRef;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub enum Op {
     Ret,
     Const(u8),
@@ -40,9 +40,6 @@ pub enum Op {
 }
 
 impl Op {
-    pub(crate) fn write(self, chunk: &mut Chunk, src: SourceRef) -> Write {
-        chunk.add(self, src)
-    }
     pub(crate) fn emit(&self, compiler: &mut Compiler) -> Write {
         let prev = SourceRef::simple();
         compiler.chunk().add(self.clone(), prev)

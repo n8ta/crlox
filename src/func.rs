@@ -1,10 +1,9 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use crate::chunk::Chunk;
 use crate::ops::print_ops;
-use crate::resolver::uniq_symbol::UniqSymbol;
 use crate::resolver::upvalue_update::VarRefResolved;
-use crate::resolver::{Upvalue, UpvalueType};
+use crate::resolver::{Upvalue};
 use crate::value::Value;
 
 #[derive(Clone, PartialEq)]

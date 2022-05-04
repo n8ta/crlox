@@ -1,8 +1,6 @@
 use std::fmt::{Display, Formatter};
-use std::ptr::write;
 use crate::scanner::{Token, TType};
 use crate::{SourceRef, Symbol};
-use crate::ast::parser_func::ParserFunc;
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ParserError {

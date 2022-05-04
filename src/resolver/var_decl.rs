@@ -1,11 +1,8 @@
 use std::cell::RefCell;
-use std::fmt::{Debug, Display, Formatter, UpperExp};
+use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
-use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
-use crate::{Source, SourceRef, Symbol, Symbolizer};
-use crate::ast::parser_func::ParserFunc;
-use crate::printable_error::PrintableError;
-use crate::resolver::uniq_symbol::{UniqSymbol, UniqSymbolizer};
+use crate::resolver::uniq_symbol::UniqSymbol;
+use crate::Symbol;
 
 
 #[derive(Debug, Clone)]

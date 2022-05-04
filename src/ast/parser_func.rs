@@ -3,11 +3,6 @@ use std::ops::Deref;
 use std::rc::Rc;
 use crate::source_ref::SourceRef;
 use crate::ast::types::Stmt;
-use crate::{Symbol, Symbolizer};
-use crate::resolver::uniq_symbol::UniqSymbol;
-use crate::resolver::var_decl::VarDecl;
-use crate::resolver::var_ref::VarRef;
-
 
 #[derive(Clone, Debug)]
 pub struct ParserFunc<DeclT: Display + Clone + PartialEq, RefT: Display + Clone + PartialEq> {

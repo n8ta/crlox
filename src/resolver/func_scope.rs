@@ -1,16 +1,7 @@
-use std::cell::RefCell;
-use std::fmt::{Debug, Display, Formatter, UpperExp};
-use std::rc::Rc;
-use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
-use crate::{Source, SourceRef, Symbol, Symbolizer};
-use crate::ast::parser::Parser;
-use crate::ast::parser_func::{ParserFunc, ParserFuncInner};
-use crate::printable_error::PrintableError;
-use crate::resolver::resolved_func::ResolvedFunc;
-use crate::resolver::uniq_symbol::{UniqSymbol, UniqSymbolizer};
+use std::fmt::{Debug, Formatter};
+use crate::resolver::uniq_symbol::{UniqSymbol};
 use crate::resolver::{Upvalue, UpvalueType};
 use crate::resolver::var_decl::VarDecl;
-use crate::resolver::var_ref::VarRef;
 
 
 #[derive(Clone)]

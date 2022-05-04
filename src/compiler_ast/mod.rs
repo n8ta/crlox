@@ -1,11 +1,9 @@
-use std::borrow::BorrowMut;
 use crate::ast::types::{BinOp, Expr, ExprTy, LogicalOp, Stmt, UnaryOp};
 use crate::func::{Func, FuncType};
 use crate::ops::Op;
 use crate::resolver::resolved_func::ResolvedFunc;
 use crate::resolver::upvalue_update::{VarRefResolved, VarRefResolvedType};
-use crate::resolver::var_decl::{VarDecl, VarDeclType};
-use crate::{SourceRef, Symbolizer};
+use crate::{SourceRef};
 use crate::chunk::Chunk;
 use crate::value::Value;
 
@@ -19,7 +17,6 @@ type ExprTyT = ExprTy<VarRefResolved, VarRefResolved, ResolvedFunc<VarRefResolve
 
 pub(crate) struct Compiler {
     stack: Vec<SubCompiler>,
-    symbolizer: Symbolizer,
 }
 
 type CompilerResult = Result<(), String>;
@@ -60,7 +57,7 @@ impl Compiler {
                 self.expr(val)?;
                 Op::Print.emit(self);
             }
-            Stmt::Variable(name, init, src) => {
+            Stmt::Variable(name, init, _src) => {
                 match name.typ {
                     VarRefResolvedType::Upvalue(idx) => {
                         self.expr(init)?;
@@ -117,11 +114,11 @@ impl Compiler {
                 Pop
                  */
                 let loop_start = self.chunk().len() as i16;
-                self.expr(test);
+                self.expr(test)?;
                 let exit_jump = Op::RelJumpIfFalse(1337); // jump to :done if expression is false
                 let exit_jump_write = exit_jump.emit(self);
                 Op::Pop.emit(self); // pop while loop expression
-                self.stmt(body);
+                self.stmt(body)?;
                 let jump_to_start = Op::RelJump(-((self.chunk().len() as i16) - loop_start));
                 jump_to_start.emit(self); // jump to :start
                 exit_jump.overwrite(&mut self.chunk(), &exit_jump_write); // :done
@@ -150,9 +147,9 @@ impl Compiler {
                 self.binop(op);
             }
             Expr::Call(callee, args) => {
-                self.expr(callee);
+                self.expr(callee)?;
                 for arg in args.iter() {
-                    self.expr(arg);
+                    self.expr(arg)?;
                 }
                 Op::Call(args.len() as u8).emit(self);
             }
@@ -178,7 +175,7 @@ impl Compiler {
             Expr::Set(inst, field, value) => {
                 self.expr(inst)?;
                 let idx = self.chunk().add_const(Value::String(field.clone()));
-                self.expr(value);
+                self.expr(value)?;
                 Op::SetProperty(idx);
             }
             Expr::Variable(var) => {
@@ -261,7 +258,7 @@ impl Compiler {
     }
 }
 
-pub fn compile(func: ResolvedFunc<VarRefResolved, VarRefResolved>, mut symbolizer: Symbolizer) -> Func {
-    let mut c = Compiler { stack: vec![], symbolizer: symbolizer.clone() };
+pub fn compile(func: ResolvedFunc<VarRefResolved, VarRefResolved>) -> Func {
+    let mut c = Compiler { stack: vec![] };
     c.func(&func, true).unwrap()
 }

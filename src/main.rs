@@ -1,4 +1,4 @@
-extern crate core;
+#[allow(dead_code)]
 
 use std::io::Read;
 use std::process::exit;
@@ -11,7 +11,7 @@ mod value;
 mod source_ref;
 mod chunk;
 mod scanner;
-mod trie;
+// mod trie;
 mod symbolizer;
 mod e2e_tests;
 mod native_func;
@@ -73,7 +73,7 @@ fn main() {
         println!("{}", ast);
     }
 
-    let bytecode = crate::compiler_ast::compile(ast, symbolizer.clone());
+    let bytecode = crate::compiler_ast::compile(ast);
 
     if dump_bytecode {
         println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());

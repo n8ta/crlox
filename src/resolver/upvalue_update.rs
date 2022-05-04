@@ -4,7 +4,7 @@ use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
 use crate::printable_error::PrintableError;
 use crate::resolver::map_result;
 use crate::resolver::resolved_func::ResolvedFunc;
-use crate::resolver::uniq_symbol::{UniqSymbol, UniqSymbolizer};
+use crate::resolver::uniq_symbol::{UniqSymbol};
 use crate::resolver::var_decl::{VarDecl, VarDeclType};
 use crate::resolver::var_ref::VarRef;
 use crate::SourceRef;
@@ -162,7 +162,7 @@ impl Updater {
             let idx = flat(&self.stack.last_mut().unwrap().1).len() -1;
             VarRefResolved::new(var.sym(), VarRefResolvedType::Stack(idx as u8))
         } else {
-            let (idx, _up) = self.stack.last_mut().unwrap().0.upvalues.iter().enumerate().find(|(idx, up)| up.sym == var.sym()).unwrap();
+            let (idx, _up) = self.stack.last_mut().unwrap().0.upvalues.iter().enumerate().find(|(_idx, up)| up.sym == var.sym()).unwrap();
             VarRefResolved::new(var.sym(), VarRefResolvedType::Upvalue(idx as u8))
         }
     }
@@ -178,7 +178,7 @@ impl Updater {
             }
             VarDeclType::Local => {
                 let flattened = flat(&self.stack.last().unwrap().1);
-                let (idx, _local) = match flattened.iter().enumerate().find(|(idx, local)| local.sym() == symbol) {
+                let (idx, _local) = match flattened.iter().enumerate().find(|(_idx, local)| local.sym() == symbol) {
                     None => return Err(PrintableError::new(format!("Unable to find {} on the stack\n{:?}", symbol.symbol, flattened), SourceRef::simple())),
                     Some(i) => i,
                 };

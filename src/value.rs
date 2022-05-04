@@ -1,11 +1,8 @@
 use std::fmt::{Debug, Display, Formatter};
-use crate::ast::parser_func::ParserFunc;
 use crate::closure::RtClosure;
 use crate::func::Func;
 use crate::native_func::NativeFunc;
 use crate::Symbol;
-use crate::resolver::uniq_symbol::UniqSymbol;
-use crate::resolver::upvalue_update::VarRefResolved;
 
 #[derive(Clone, PartialEq)]
 pub enum Value {

@@ -1,13 +1,7 @@
 use std::fmt::{Display, Formatter};
-use std::ops::Deref;
-use crate::ast::parser_func::ParserFunc;
 use crate::ast::types::Stmt;
-use crate::{Source, SourceRef, Symbol};
-use crate::resolver::uniq_symbol::UniqSymbol;
+use crate::{SourceRef};
 use crate::resolver::Upvalue;
-use crate::resolver::upvalue_update::VarRefResolved;
-use crate::resolver::var_decl::VarDecl;
-use crate::resolver::var_ref::VarRef;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct ResolvedFunc<DeclT: Display + Clone + PartialEq, RefT: Display + Clone + PartialEq> {

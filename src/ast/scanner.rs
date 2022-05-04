@@ -6,49 +6,6 @@ use crate::{Symbolizer};
 
 type ScannerResult = Result<Vec<Token>, (String, usize)>;
 
-impl TType {
-    /// Compare two tokens by type only
-    pub(crate) fn type_equal(&self, other: &TType) -> bool {
-        match (self, other) {
-            (TType::Plus, TType::Plus) => true,
-            (TType::Star, TType::Star) => true,
-            (TType::LeftParen, TType::LeftParen) => true,
-            (TType::RightParen, TType::RightParen) => true,
-            (TType::LeftBrace, TType::LeftBrace) => true,
-            (TType::RightBrace, TType::RightBrace) => true,
-            (TType::Eq, TType::Eq) => true,
-            (TType::EqEq, TType::EqEq) => true,
-            (TType::BangEq, TType::BangEq) => true,
-            (TType::Bang, TType::Bang) => true,
-            (TType::Minus, TType::Minus) => true,
-            (TType::Identifier(_), TType::Identifier(_)) => true,
-            (TType::Semicolon, TType::Semicolon) => true,
-            (TType::Comma, TType::Comma) => true,
-            (TType::Dot, TType::Dot) => true,
-            (TType::Slash, TType::Slash) => true,
-            (TType::Greater, TType::Greater) => true,
-            (TType::GreaterEq, TType::GreaterEq) => true,
-            (TType::Less, TType::Less) => true,
-            (TType::LessEq, TType::LessEq) => true,
-            (TType::And, TType::And) => true,
-            (TType::Else, TType::Else) => true,
-            (TType::For, TType::For) => true,
-            (TType::Fun, TType::Fun) => true,
-            (TType::Class, TType::Class) => true,
-            (TType::If, TType::If) => true,
-            (TType::Or, TType::Or) => true,
-            (TType::Print, TType::Print) => true,
-            (TType::Return, TType::Return) => true,
-            (TType::Super, TType::Super) => true,
-            (TType::This, TType::This) => true,
-            (TType::Var, TType::Var) => true,
-            (TType::While, TType::While) => true,
-            (TType::EOF, TType::EOF) => true,
-            _ => false,
-        }
-    }
-}
-
 pub fn scanner(src: Rc<Source>, symbolizer: Symbolizer) -> ScannerResult {
     let mut scanner = Scanner::new(src, symbolizer);
     scanner.scan_tokens()

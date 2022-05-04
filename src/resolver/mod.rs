@@ -6,13 +6,10 @@ mod func_scope;
 pub(crate) mod upvalue_update;
 mod var_decl_resolver;
 
-use std::cell::RefCell;
-use std::fmt::{Debug, Display, Formatter, UpperExp};
-use std::rc::Rc;
+use std::fmt::{Debug, Display, Formatter};
 use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
-use crate::{Source, SourceRef, Symbol, Symbolizer};
-use crate::ast::parser::Parser;
-use crate::ast::parser_func::{ParserFunc, ParserFuncInner};
+use crate::{SourceRef, Symbol, Symbolizer};
+use crate::ast::parser_func::{ParserFunc};
 use crate::printable_error::PrintableError;
 use crate::resolver::func_scope::FuncScope;
 use crate::resolver::resolved_func::ResolvedFunc;
@@ -81,9 +78,6 @@ type StmtIn = Stmt<Symbol, Symbol, FuncIn>;
 type StmtOut = Stmt<VarDecl, VarRef, FuncOut>;
 type ExprTyIn = ExprTy<Symbol, Symbol, FuncIn>;
 type ExprTyOut = ExprTy<VarDecl, VarRef, FuncOut>;
-
-type StmtFinal = Stmt<VarRefResolved, VarRefResolved, ResolvedFunc<VarRefResolved, VarRefResolved>>;
-
 
 impl<'a> PartialResolver<'a> {
     pub fn new(uniq: &'a mut UniqSymbolizer) -> PartialResolver { PartialResolver { uniq, stack: vec![FuncScope::new()] } }
@@ -168,18 +162,10 @@ impl<'a> PartialResolver<'a> {
     }
     fn resolve(&mut self, symbol: Symbol, src: &SourceRef) -> Result<VarRef, PrintableError> {
         let mut result = None;
-        let len = self.stack.len();
         for (func_idx, func) in self.stack.iter_mut().enumerate().rev() {
-            let len_scopes = func.scopes.len();
-            for (scope_idx, scope) in func.scopes.iter_mut().enumerate().rev() {
+            for scope in func.scopes.iter_mut().rev() {
                 for var in scope.iter_mut().rev() {
                     if var == &symbol {
-                        // If this variable wasn't defined in the current function we
-                        // are closing over it. Mark is it an upvalue root.
-                        // if !outermost_func {
-                        //     var.make_upvalue();
-                        //     func.root_upvalues.push(var.clone());
-                        // }
                         result = Some((func_idx, var.clone()));
                         break;
                     }
@@ -247,7 +233,7 @@ impl<'a> PartialResolver<'a> {
 /// So future passes can easily compare by the number. This makes implementing closures
 /// much easier.
 pub fn resolve(ast: StmtIn, symbolizer: Symbolizer) -> Result<ResolvedFunc<VarRefResolved, VarRefResolved>, PrintableError> {
-    let mut symbolizer = symbolizer.clone();
+    let symbolizer = symbolizer.clone();
     let mut uniq_symbolizer = UniqSymbolizer::new(symbolizer);
     let root_function_symbol = uniq_symbolizer.root();
 
@@ -267,6 +253,7 @@ pub fn resolve(ast: StmtIn, symbolizer: Symbolizer) -> Result<ResolvedFunc<VarRe
 #[test]
 fn test_plain_text() {
     use std::rc::Rc;
+    use crate::source_ref::Source;
 
     fn remove_spaces_eq(expected: &str, actual: &str) {
         let exp: String = expected.chars().filter(|c| *c != ' ' && *c != '\n').collect();
