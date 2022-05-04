@@ -35,7 +35,7 @@ impl Compiler {
         let mut sub = self.stack.pop().unwrap();
         sub.chunk.add(Op::Nil, SourceRef::simple());
         sub.chunk.add(Op::Ret, SourceRef::simple());
-        let f = Func::new(func.name.clone(), func.args.len() as u8, FuncType::Function, sub.chunk, func.upvalues.len());
+        let f = Func::new(func.name.clone(), func.args.len() as u8, FuncType::Function, sub.chunk, func.upvalues.clone());
         if !is_root {
             let idx = self.chunk().add_const(Value::Func(f.clone()));
             Op::Closure(idx).emit(self);
@@ -44,7 +44,10 @@ impl Compiler {
     }
     fn stmt(&mut self, stmt: &StmtT) -> CompilerResult {
         match stmt {
-            Stmt::Expr(expr) => self.expr(expr)?,
+            Stmt::Expr(expr) => {
+                self.expr(expr)?;
+                Op::Pop.emit(self);
+            },
             Stmt::Block(block, scope_size) => {
                 for stmt in block.iter() {
                     self.stmt(stmt)?;
@@ -60,6 +63,7 @@ impl Compiler {
             Stmt::Variable(name, init, src) => {
                 match name.typ {
                     VarRefResolvedType::Upvalue(idx) => {
+                        self.expr(init)?;
                         Op::SetUpvalue(idx).emit(self);
                     }
                     VarRefResolvedType::Stack(_idx) => {
@@ -178,7 +182,6 @@ impl Compiler {
                 Op::SetProperty(idx);
             }
             Expr::Variable(var) => {
-                println!("Resolved to {}", var);
                 match var.typ {
                     VarRefResolvedType::Upvalue(up_idx) => Op::GetUpvalue(up_idx).emit(self),
                     VarRefResolvedType::Stack(local_idx) => Op::GetLocal(local_idx).emit(self),

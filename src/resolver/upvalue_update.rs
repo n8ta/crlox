@@ -182,7 +182,6 @@ impl Updater {
                     None => return Err(PrintableError::new(format!("Unable to find {} on the stack\n{:?}", symbol.symbol, flattened), SourceRef::simple())),
                     Some(i) => i,
                 };
-                println!("Found {} at idx {}", symbol.symbol, idx);
                 Ok(VarRefResolved::new(symbol, VarRefResolvedType::Stack(idx as u8)))
             }
             VarDeclType::ProgramRoot => panic!("Cannot resolve program root varref"),

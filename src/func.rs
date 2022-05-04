@@ -4,6 +4,7 @@ use crate::chunk::Chunk;
 use crate::ops::print_ops;
 use crate::resolver::uniq_symbol::UniqSymbol;
 use crate::resolver::upvalue_update::VarRefResolved;
+use crate::resolver::{Upvalue, UpvalueType};
 use crate::value::Value;
 
 #[derive(Clone, PartialEq)]
@@ -24,7 +25,7 @@ impl Debug for Func {
     /// Print this function and any function in it's constants
     /// Hope there's no loops!
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("func<{}>\n", self.inner.name))?;
+        f.write_str(&format!("func<{}[{}ups]>\n", self.inner.name.symbol.symbol, self.inner.upvalues.len()))?;
         f.write_str(&format!("{}", print_ops(&self.inner.chunk.code)))?;
 
         f.write_str("\n")?;
@@ -43,7 +44,7 @@ pub struct FuncInner {
     pub chunk: Chunk,
     pub arity: u8,
     pub ftype: FuncType,
-    pub num_upvalues: usize,
+    pub upvalues: Vec<Upvalue>,
 }
 
 impl Func {
@@ -57,13 +58,13 @@ impl Func {
         &self.inner.chunk
     }
 
-    pub fn new(name: VarRefResolved, arity: u8, ftype: FuncType, chunk: Chunk, num_upvalues: usize) -> Func {
+    pub fn new(name: VarRefResolved, arity: u8, ftype: FuncType, chunk: Chunk, upvalues: Vec<Upvalue>) -> Func {
         let inner = FuncInner {
             name,
             chunk,
             arity,
             ftype,
-            num_upvalues,
+            upvalues,
         };
 
         Func {

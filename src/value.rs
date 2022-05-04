@@ -65,7 +65,7 @@ impl Display for Value {
             Value::String(s) => f.write_str(&format!("{}", s)),
             Value::Func(lfn) => f.write_str(&format!("fn-{}[{}]", lfn.name, lfn.arity)),
             Value::Native(nfn) => f.write_str(&format!("native-[{}]{}", nfn.name, nfn.arity)),
-            Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name(), c.arity())),
+            Value::Closure(c) => f.write_str(&format!("closure-{}[{}]", c.name().symbol, c.arity())),
             // Value::Class(class) => f.write_str(&format!("class-{}",class.name())),
             // Value::Instance(inst) => f.write_str(&format!("instance-{}",inst.name())),
             // Value::BoundClosure(bc) => f.write_str(&format!("bound-closure-{}", bc.name()))

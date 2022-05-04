@@ -23,8 +23,8 @@ use crate::resolver::var_ref::VarRef;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Upvalue {
-    sym: UniqSymbol,
-    typ: UpvalueType,
+    pub sym: UniqSymbol,
+    pub typ: UpvalueType,
 }
 
 impl Upvalue {

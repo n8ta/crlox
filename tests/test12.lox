@@ -1,4 +1,4 @@
-fun double_closure() {
+fun doubleclosure() {
   {
      var i = 1;
      fun closure1() {
@@ -7,7 +7,7 @@ fun double_closure() {
   }
   var x = true;
   {
-      var i = 0;
+      var i = 1337;
       fun closure2() {
         return i;
       }
@@ -17,5 +17,5 @@ fun double_closure() {
   return x;
 }
 
-var dc =  double_closure();
+var dc =  doubleclosure();
 print dc();

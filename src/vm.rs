@@ -5,9 +5,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ops::{Op};
 use crate::value::Value;
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
+use crate::closure::WrappedValue;
 use crate::func::Func;
 use crate::native_func::NativeFunc;
 use crate::resolver::uniq_symbol::UniqSymbol;
+use crate::resolver::{Upvalue, UpvalueType};
 
 #[derive(Debug)]
 pub enum InterpErrorType {
@@ -75,7 +77,7 @@ impl VM {
             globals: HashMap::new(),
             frames: vec![],
             frame: CallFrame {
-                closure: crate::closure::RtClosure::new(main_func.clone()),
+                closure: crate::closure::RtClosure::new(main_func.clone(), &mut vec![]),
                 ip: 0,
                 frame_offset: 0,
             },
@@ -273,10 +275,10 @@ impl VM {
                     self.bump_ip();
                 }
                 Op::GetUpvalue(idx) => {
-                    self.get_upvalue(*idx);
+                    self.get_upvalue(*idx)?;
                 }
                 Op::SetUpvalue(idx) => {
-                    self.set_upvalue(*idx);
+                    self.set_upvalue(*idx)?;
                 }
                 Op::Class(idx) => {
                     todo!("class")
@@ -362,7 +364,7 @@ impl VM {
     fn closure(&mut self, func_idx: u8) -> Result<(), InterpError> {
         let func = &self.frame.closure.func.chunk().constants[func_idx as usize];
         if let Value::Func(f) = func {
-            let mut closure = crate::closure::RtClosure::new(f.clone());
+            let mut closure = crate::closure::RtClosure::new(f.clone(), &mut self.frame.closure.live_upvalues);
             self.push(Value::Closure(closure));
             self.bump_ip();
             Ok(())
@@ -526,7 +528,10 @@ impl VM {
     fn get_upvalue(&mut self, idx: u8) -> Result<(), InterpError> {
         #[cfg(debug_assertions)]
         self.print_stack_frame("get local");
-        let peeked: Value = self.frame.closure.upvalues.get(idx as usize).unwrap().borrow().inner_value.clone();
+        let peeked: Value = match self.frame.closure.live_upvalues.get(idx as usize) {
+            None => return Err(InterpError::compile(None, format!("Couldn't find upvalue at idx {}", idx))),
+            Some(val) => val.borrow().inner_value.clone(),
+        };
         self.push(peeked);
         self.bump_ip();
         Ok(())
@@ -534,9 +539,13 @@ impl VM {
 
     fn set_upvalue(&mut self, idx: u8) -> Result<(), InterpError> {
         {
-            let mut new_value = self.peek().clone();
-            let mut existing_value = self.frame.closure.upvalues[idx as usize].borrow_mut();
-            swap(&mut new_value, &mut existing_value.inner_value);
+            let mut new_value = self.pop()?;
+            let mut existing_value = match self.frame.closure.live_upvalues.get_mut(idx as usize) {
+                Some(value) => value,
+                None => return Err(InterpError::compile(
+                    None, format!("Failed to set upvalue at idx {}/{}", idx, self.frame.closure.live_upvalues.len())))
+            };
+            swap(&mut new_value, &mut existing_value.borrow_mut().inner_value);
         }
         self.bump_ip();
         Ok(())
