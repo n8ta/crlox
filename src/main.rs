@@ -3,26 +3,20 @@
 use std::io::Read;
 use std::process::exit;
 use std::rc::Rc;
-use crate::source_ref::{Source, SourceRef};
-use crate::symbolizer::{Symbol, Symbolizer};
+use crate::lexer::{Source, SourceRef, Symbol, Symbolizer};
 use crate::vm::VM;
 
-mod value;
-mod source_ref;
-mod scanner;
-// mod trie;
-mod symbolizer;
+mod lexer;
 mod e2e_tests;
-mod native_func;
 mod debug;
-mod closure;
 mod ast;
-mod compiler_ast;
+mod bytecode_compiler;
 mod resolver;
 mod printable_error;
-mod func;
+mod runtime;
 mod ops;
 mod vm;
+mod util;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -56,8 +50,8 @@ fn main() {
     let symbolizer = Symbolizer::new();
     let source = Rc::new(Source::new(contents));
 
-    let tokens = crate::ast::scanner::scanner(source.clone(), symbolizer.clone()).unwrap();
-    let ast = crate::ast::parser::parse(tokens, source).unwrap();
+    let tokens = crate::lexer::scanner(source.clone(), symbolizer.clone()).unwrap();
+    let ast = crate::ast::parse(tokens, source).unwrap();
 
     let ast = match crate::resolver::resolve(ast, symbolizer.clone())
     {
@@ -72,7 +66,7 @@ fn main() {
         println!("{}", ast);
     }
 
-    let bytecode = crate::compiler_ast::compile(ast);
+    let bytecode = crate::bytecode_compiler::compile(ast);
 
     if dump_bytecode {
         println!("Op size is : {}B\n", core::mem::size_of::<crate::ops::Op>());

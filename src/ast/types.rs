@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
-use crate::scanner::{Token, TType};
-use crate::{SourceRef, Symbol};
+use crate::lexer::{SourceRef, Symbol, TType, Token};
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ParserError {
@@ -116,7 +115,7 @@ pub enum Expr<
     Call(ExprTy<DeclT, RefT, FuncT>, Vec<ExprTy<DeclT, RefT, FuncT>>),
     Grouping(ExprTy<DeclT, RefT, FuncT>),
     Get(ExprTy<DeclT, RefT, FuncT>, Symbol),
-    Literal(crate::value::Value),
+    Literal(crate::runtime::Value),
     Unary(UnaryOp, ExprTy<DeclT, RefT, FuncT>),
     Set(ExprTy<DeclT, RefT, FuncT>, Symbol, ExprTy<DeclT, RefT, FuncT>),
     Variable(RefT),

@@ -1,9 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use crate::source_ref::Source;
-use crate::{SourceRef};
-use crate::symbolizer::Symbol;
+use crate::lexer::{Source, Symbol, SourceRef};
 
 #[derive(Clone, Debug)]
 pub struct Token {

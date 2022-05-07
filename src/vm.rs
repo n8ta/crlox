@@ -3,10 +3,8 @@ use std::fmt::{Display, Formatter};
 use std::mem::swap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ops::{Op};
-use crate::value::Value;
+use crate::runtime::{Value, Func, NativeFunc};
 use crate::{debug_println, SourceRef, Symbol, Symbolizer};
-use crate::func::Func;
-use crate::native_func::NativeFunc;
 
 #[derive(Debug)]
 pub enum InterpErrorType {
@@ -61,7 +59,7 @@ pub struct VM {
 }
 
 struct CallFrame {
-    pub closure: crate::closure::RtClosure,
+    pub closure: crate::runtime::RtClosure,
     pub ip: usize,
     pub frame_offset: usize,
 }
@@ -74,7 +72,7 @@ impl VM {
             globals: HashMap::new(),
             frames: vec![],
             frame: CallFrame {
-                closure: crate::closure::RtClosure::new(main_func.clone(), &mut vec![]),
+                closure: crate::runtime::RtClosure::new(main_func.clone(), &mut vec![]),
                 ip: 0,
                 frame_offset: 0,
             },
@@ -357,7 +355,7 @@ impl VM {
     fn closure(&mut self, func_idx: u8) -> Result<(), InterpError> {
         let func = self.get_const(func_idx)?;
         if let Value::Func(f) = func {
-            let closure = crate::closure::RtClosure::new(f.clone(), &mut self.frame.closure.live_upvalues);
+            let closure = crate::runtime::RtClosure::new(f.clone(), &mut self.frame.closure.live_upvalues);
             self.push(Value::Closure(closure));
             self.bump_ip();
             Ok(())

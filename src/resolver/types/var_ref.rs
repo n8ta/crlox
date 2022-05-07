@@ -1,6 +1,6 @@
 
 use std::fmt::{Display, Formatter};
-use crate::resolver::var_decl::VarDecl;
+use crate::resolver::VarDecl;
 
 
 impl Display for VarRef {

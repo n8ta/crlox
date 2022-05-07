@@ -1,4 +1,16 @@
-pub mod scanner;
-pub mod parser;
-pub mod types;
-pub mod parser_func;
+mod parser;
+mod types;
+mod parser_func;
+
+pub use parser::parse;
+pub use types::{ParserError,
+                ExprInContext,
+                Stmt,
+                LogicalOp,
+                Expr,
+                BinOp,
+                UnaryOp,
+                Tokens,
+                ExprTy,
+                ExprResult, };
+pub use parser_func::ParserFunc;

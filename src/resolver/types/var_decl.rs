@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
-use crate::resolver::uniq_symbol::UniqSymbol;
+use crate::resolver::UniqSymbol;
 use crate::Symbol;
 
 

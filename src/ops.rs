@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
-use crate::compiler_ast::chunk::{Chunk, Write};
-use crate::compiler_ast::Compiler;
+use crate::bytecode_compiler::{Compiler, Chunk, Write};
 use crate::SourceRef;
 
 #[derive(Clone, Debug, PartialEq, Copy)]

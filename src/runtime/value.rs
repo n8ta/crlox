@@ -1,7 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
-use crate::closure::RtClosure;
-use crate::func::Func;
-use crate::native_func::NativeFunc;
+use crate::runtime::{RtClosure, Func, NativeFunc};
 use crate::Symbol;
 
 #[derive(Clone, PartialEq)]

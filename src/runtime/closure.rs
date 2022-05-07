@@ -3,10 +3,8 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 use crate::debug_println;
-use crate::func::Func;
-use crate::resolver::uniq_symbol::UniqSymbol;
-use crate::resolver::UpvalueType;
-use crate::value::Value;
+use crate::runtime::{Func, Value};
+use crate::resolver::{UniqSymbol, UpvalueType};
 
 #[derive(Debug)]
 pub struct WrappedValue {

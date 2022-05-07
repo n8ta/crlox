@@ -1,8 +1,8 @@
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
-use crate::source_ref::SourceRef;
-use crate::ast::types::Stmt;
+use crate::lexer::SourceRef;
+use crate::ast::Stmt;
 
 #[derive(Clone, Debug)]
 pub struct ParserFunc<DeclT: Display + Clone + PartialEq, RefT: Display + Clone + PartialEq> {

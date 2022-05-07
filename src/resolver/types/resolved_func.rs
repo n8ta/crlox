@@ -1,5 +1,5 @@
 use std::fmt::{Display, Formatter};
-use crate::ast::types::Stmt;
+use crate::ast::Stmt;
 use crate::{SourceRef};
 use crate::resolver::Upvalue;
 

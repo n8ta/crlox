@@ -1,13 +1,10 @@
 use std::fmt::{Display, Formatter};
 use std::mem::swap;
-use crate::ast::types::{Expr, ExprInContext, ExprTy, Stmt};
+use crate::ast::{Expr, ExprInContext, ExprTy, Stmt};
 use crate::printable_error::PrintableError;
-use crate::resolver::map_result;
-use crate::resolver::resolved_func::ResolvedFunc;
-use crate::resolver::uniq_symbol::{UniqSymbol};
-use crate::resolver::var_decl::{VarDecl, VarDeclType};
-use crate::resolver::var_ref::VarRef;
+use crate::resolver::{UniqSymbol, ResolvedFunc, VarDecl, VarDeclType, VarRef};
 use crate::SourceRef;
+use crate::util::map_result;
 
 
 #[derive(Clone, Debug, PartialEq)]

@@ -1,8 +1,6 @@
 use std::collections::HashMap;
-use crate::source_ref::{SourceRef, Source};
+use crate::lexer::{SourceRef, Source, Num, Token, TType, Symbolizer};
 use std::rc::Rc;
-use crate::scanner::{Num, Token, TType};
-use crate::{Symbolizer};
 
 type ScannerResult = Result<Vec<Token>, (String, usize)>;
 

@@ -1,9 +1,7 @@
 use std::rc::Rc;
-use crate::scanner::{IDENTIFIER_TTYPE_ID, NUMBER_TTYPE_ID, STRING_TTYPE_ID, Token, TType, TTypeId};
-use crate::source_ref::Source;
-use crate::value::Value;
-use crate::ast::parser_func::ParserFunc;
-use crate::ast::types::{BinOp, Expr, ExprInContext, ExprResult, ExprTy, LogicalOp, ParserError, Stmt, Tokens, UnaryOp};
+use crate::lexer::{Source, IDENTIFIER_TTYPE_ID, NUMBER_TTYPE_ID, STRING_TTYPE_ID, Token, TType, TTypeId};
+use crate::runtime::Value;
+use crate::ast::{ParserFunc, BinOp, Expr, ExprInContext, ExprResult, ExprTy, LogicalOp, ParserError, Stmt, Tokens, UnaryOp};
 use crate::{SourceRef, Symbol};
 
 pub fn parse(tokens: Tokens, source: Rc<Source>) -> Result<PStmt, ParserError> {
@@ -157,9 +155,8 @@ impl Parser {
         //     methods.push(self.function()?);
         // }
         // self.consume(TType::LeftBrace.id(), "Expected a '}' after class body")?;
-        //
-        todo!("class")
         // Ok(Stmt::Class(Class::new(name)))
+        todo!("class")
     }
 
     fn function(&mut self) -> Result<ParserFunc<Symbol, Symbol>, ParserError> {

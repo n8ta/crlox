@@ -1,10 +1,9 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
-use crate::compiler_ast::chunk::Chunk;
+use crate::bytecode_compiler::Chunk;
 use crate::ops::print_ops;
-use crate::resolver::upvalue_update::VarRefResolved;
-use crate::resolver::{Upvalue};
-use crate::value::Value;
+use crate::resolver::{Upvalue, VarRefResolved};
+use crate::runtime::Value;
 
 #[derive(Clone, PartialEq)]
 pub struct Func {

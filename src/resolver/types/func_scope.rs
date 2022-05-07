@@ -1,7 +1,5 @@
 use std::fmt::{Debug, Formatter};
-use crate::resolver::uniq_symbol::{UniqSymbol};
-use crate::resolver::{Upvalue, UpvalueType};
-use crate::resolver::var_decl::VarDecl;
+use crate::resolver::{UniqSymbol, Upvalue, UpvalueType, VarDecl};
 
 
 #[derive(Clone)]

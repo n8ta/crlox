@@ -1,13 +1,13 @@
-use crate::ast::types::{BinOp, Expr, ExprTy, LogicalOp, Stmt, UnaryOp};
-use crate::func::{Func, FuncType};
-use crate::ops::Op;
-use crate::resolver::resolved_func::ResolvedFunc;
-use crate::resolver::upvalue_update::{VarRefResolved, VarRefResolvedType};
-use crate::{SourceRef};
-use crate::compiler_ast::chunk::Chunk;
-use crate::value::Value;
+mod chunk;
 
-pub mod chunk;
+pub use chunk::{Chunk, Write};
+
+use crate::ast::{BinOp, Expr, ExprTy, LogicalOp, Stmt, UnaryOp};
+use crate::runtime::{Func, FuncType};
+use crate::ops::Op;
+use crate::resolver::{ResolvedFunc, VarRefResolved, VarRefResolvedType};
+use crate::lexer::SourceRef;
+use crate::runtime::Value;
 
 struct SubCompiler {
     chunk: Chunk,
