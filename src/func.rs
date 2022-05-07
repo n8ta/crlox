@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
-use crate::chunk::Chunk;
+use crate::compiler_ast::chunk::Chunk;
 use crate::ops::print_ops;
 use crate::resolver::upvalue_update::VarRefResolved;
 use crate::resolver::{Upvalue};

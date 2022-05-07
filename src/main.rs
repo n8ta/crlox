@@ -9,7 +9,6 @@ use crate::vm::VM;
 
 mod value;
 mod source_ref;
-mod chunk;
 mod scanner;
 // mod trie;
 mod symbolizer;

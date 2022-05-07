@@ -4,8 +4,10 @@ use crate::ops::Op;
 use crate::resolver::resolved_func::ResolvedFunc;
 use crate::resolver::upvalue_update::{VarRefResolved, VarRefResolvedType};
 use crate::{SourceRef};
-use crate::chunk::Chunk;
+use crate::compiler_ast::chunk::Chunk;
 use crate::value::Value;
+
+pub mod chunk;
 
 struct SubCompiler {
     chunk: Chunk,

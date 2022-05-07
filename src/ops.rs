@@ -1,5 +1,5 @@
 use std::fmt::{Display, Formatter};
-use crate::chunk::{Chunk, Write};
+use crate::compiler_ast::chunk::{Chunk, Write};
 use crate::compiler_ast::Compiler;
 use crate::SourceRef;
 

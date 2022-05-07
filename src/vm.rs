@@ -357,7 +357,7 @@ impl VM {
     fn closure(&mut self, func_idx: u8) -> Result<(), InterpError> {
         let func = self.get_const(func_idx)?;
         if let Value::Func(f) = func {
-            let mut closure = crate::closure::RtClosure::new(f.clone(), &mut self.frame.closure.live_upvalues);
+            let closure = crate::closure::RtClosure::new(f.clone(), &mut self.frame.closure.live_upvalues);
             self.push(Value::Closure(closure));
             self.bump_ip();
             Ok(())
@@ -533,7 +533,7 @@ impl VM {
     fn set_upvalue(&mut self, idx: u8) -> Result<(), InterpError> {
         {
             let mut new_value = self.pop()?;
-            let mut existing_value = match self.frame.closure.live_upvalues.get_mut(idx as usize) {
+            let existing_value = match self.frame.closure.live_upvalues.get_mut(idx as usize) {
                 Some(value) => value,
                 None => return Err(InterpError::compile(
                     None, format!("Failed to set upvalue at idx {}/{}", idx, self.frame.closure.live_upvalues.len())))
