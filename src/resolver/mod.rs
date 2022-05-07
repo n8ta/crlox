@@ -9,26 +9,17 @@ use std::fmt::{Debug, Display, Formatter};
 use crate::ast::{Expr, ExprInContext, ExprTy, Stmt, ParserFunc};
 use crate::lexer::{SourceRef, Symbol, Symbolizer};
 use crate::printable_error::PrintableError;
-use crate::resolver::stack_placement_pass::update_upvalues;
+use crate::resolver::stack_placement_pass::pass;
 use crate::resolver::upvalue_identifier_pass::PartialResolver;
 use crate::Source;
 
 pub fn resolve(ast: upvalue_identifier_pass::StmtIn, symbolizer: Symbolizer) -> Result<ResolvedFunc<VarRefResolved, VarRefResolved>, PrintableError> {
     let symbolizer = symbolizer.clone();
     let mut uniq_symbolizer = UniqSymbolizer::new(symbolizer);
-    let root_function_symbol = uniq_symbolizer.root();
 
-    let mut partial_resolver = PartialResolver::new(&mut uniq_symbolizer);
-    let out = partial_resolver.stmt(ast)?;
-    let root_func = ResolvedFunc::new(
-        VarDecl::new(root_function_symbol),
-        vec![],
-        out,
-        SourceRef::simple(),
-        SourceRef::simple(),
-        partial_resolver.end_func().upvalues, // end the implicit function wrapping all scripts
-    );
-    update_upvalues(root_func)
+    let upval_identified_ast = upvalue_identifier_pass::pass(ast, &mut uniq_symbolizer)?;
+    let variables_placed_in_stack_ast = stack_placement_pass::pass(upval_identified_ast);
+    variables_placed_in_stack_ast
 }
 
 #[test]

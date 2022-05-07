@@ -47,7 +47,7 @@ type StmtOut = Stmt<VarRefResolved, VarRefResolved, FuncOut>;
 type ExprTyIn = ExprTy<VarDecl, VarRef, FuncIn>;
 type ExprTyOut = ExprTy<VarRefResolved, VarRefResolved, FuncOut>;
 
-pub fn update_upvalues(func: FuncIn) -> Result<FuncOut, PrintableError> {
+pub fn pass(func: FuncIn) -> Result<FuncOut, PrintableError> {
     let mut up = Updater {
         stack: vec![],
     };
@@ -55,7 +55,7 @@ pub fn update_upvalues(func: FuncIn) -> Result<FuncOut, PrintableError> {
 }
 
 impl Updater {
-    pub fn func(&mut self, mut func: FuncIn, is_root: bool) -> Result<FuncOut, PrintableError> {
+    fn func(&mut self, mut func: FuncIn, is_root: bool) -> Result<FuncOut, PrintableError> {
         if !is_root {
             self.declare(func.name.clone());
         }

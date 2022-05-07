@@ -15,6 +15,20 @@ impl<'a> Debug for PartialResolver<'a> {
     }
 }
 
+pub fn pass(ast: StmtIn, uniq_symbolizer: &mut UniqSymbolizer) -> Result<FuncOut, PrintableError> {
+    let root_function_symbol = uniq_symbolizer.root();
+    let mut partial_resolver = PartialResolver::new(uniq_symbolizer);
+    let out = partial_resolver.stmt(ast)?;
+    let root_func = ResolvedFunc::new(
+        VarDecl::new(root_function_symbol),
+        vec![],
+        out,
+        SourceRef::simple(),
+        SourceRef::simple(),
+        partial_resolver.end_func().upvalues, // end the implicit function wrapping all scripts
+    );
+    Ok(root_func)
+}
 
 pub struct PartialResolver<'a> {
     uniq: &'a mut UniqSymbolizer,
